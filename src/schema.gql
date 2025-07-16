@@ -1,0 +1,110 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+type CanalEntity {
+  id_canal: Int!
+  co_canal: String!
+  nb_canal: String!
+  st_canal: String!
+}
+
+type HistoOperacionSalidaEntity {
+  id_operacion: Int!
+  co_ccy: String
+  co_cdtragt: String
+  co_centro_procesamiento: String
+  co_channel: String
+  co_dbtragt: String
+  co_lclinstrm: String
+  co_purp: String
+  co_rsn_cd: String
+  co_schema_cdtr: String
+  co_schema_cdtracct: String
+  co_schema_cdtragt: String
+  co_schema_dbtr: String
+  co_schema_dbtracct: String
+  co_schema_dbtragt: String
+  fe_accptncdttm: DateTime
+  fe_credttm: DateTime
+  fe_fctvintrbksttlmdt: DateTime
+  id_cdtr: String
+  id_cdtracct: String
+  id_clrsysref: String
+  id_dbtr: String
+  id_dbtracct: String
+  id_encabezado: Int
+  id_endtoendid: String
+  id_msgid_salida: String
+  id_msgid_stsreport: String
+  id_orgnl_msgid: String
+  id_txid: String
+  co_initgptyid: String
+  instdamt: Float
+  nb_cdtr_nm: String
+  nb_dbtr_nm: String
+  nu_intentos_pain: Int
+  nu_intentos_stsreport: Int
+  nu_referencia_ope: String
+  st_operacion: String
+  ti_operacion: String
+  ts_fecha_compensacion_notificada: DateTime
+  ts_fecha_timestamp_ins: DateTime
+  ts_fecha_timestamp_upd: DateTime
+  tx_rmtinf: String
+  tx_sts: String
+  id_instrid: String
+  co_orgtr: String
+  co_schema_ultmt_cdtr: String
+  co_schema_ultmt_dbtr: String
+  id_ultmt_cdtr: String
+  id_ultmt_dbtr: String
+  nb_ultmt_cdtr_nm: String
+  nb_ultmt_dbtr_nm: String
+  ti_protocolo_entrada: String
+  st_notificada: String
+  in_notificada: Int
+  id_ref_bancaria: String
+  co_addtinf: String
+  co_rvsl_rsn_inf: String
+  fe_orgnl_credttm: DateTime
+  tx_initnsrc_nm: String
+  tx_initnsrc_prvdr: String
+  tx_initnsrc_vrsn: String
+  tx_username: String
+  nu_fctvintrbksttlmnb: Int
+  in_prioridad: Int
+  id_usuario: Int
+  id_cliente: String
+  pc_btc: Float
+  pc_empresa: Float
+  id_instgagt: String
+  id_instdagt: String
+  co_cliente: String
+  ts_fecha_fin_operacion: DateTime
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+type HistoOperacionSalidaPage {
+  data: [HistoOperacionSalidaEntity!]!
+  total: Int!
+  page: Int!
+  last_page: Int!
+}
+
+type Query {
+  operacionesSalida(page: Int! = 1, per_page: Int! = 20, filter: HistoOperacionSalidaFiltroInput): HistoOperacionSalidaPage!
+  canales: [CanalEntity!]!
+}
+
+input HistoOperacionSalidaFiltroInput {
+  st_operacion: String
+  id_txid: String
+  fecha_gte: String
+  fecha_lte: String
+  order_by: String
+}
