@@ -15,8 +15,11 @@ import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity
 export interface PaginatedResponse<T> {
     data: T[];
     total: number;
-    page: number;
+    current_page: number;
     last_page: number;
+    per_page: number;
+    from: number | null;
+    to: number | null;
 }
 
 export class BaseService<T extends ObjectLiteral> {
@@ -109,26 +112,40 @@ export class BaseService<T extends ObjectLiteral> {
             return {
                 data,
                 total: data.length,
-                page: 1,
+                current_page: 1,
                 last_page: 1,
+                per_page: data.length,
+                from: data.length > 0 ? 1 : null,
+                to: data.length > 0 ? data.length : null,
             };
         }
+
+        const skip = (page - 1) * limit;
 
         // Consulta paginada
         const [data, total] = await this.repository.findAndCount({
             where,
-            skip: (page - 1) * limit,
+            skip,
             take: limit,
             order,
             relations,
             ...options,
         });
 
+
+        const last_page = Math.ceil(total / limit) || 1;
+        const from = total > 0 ? skip + 1 : null;
+        const to = total > 0 ? skip + data.length : null;
+
+        // --- Return Formatted Response ---
         return {
             data,
             total,
-            page,
-            last_page: Math.ceil(total / limit),
+            current_page: page,
+            last_page,
+            per_page: limit,
+            from,
+            to
         };
     }
 
