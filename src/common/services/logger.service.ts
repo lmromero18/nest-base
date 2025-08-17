@@ -57,7 +57,7 @@ export class Logger extends ConsoleLogger implements OnModuleInit {
                     filename: path.join(logDir, 'info.log'),
                     level: 'silly',
                     format: winston.format.combine(
-                        excludeErrors(), // ✅ se aplica solo aquí
+                        excludeErrors(),
                         winston.format.timestamp(),
                         winston.format.errors({ stack: true }),
                         winston.format.printf(({ timestamp, level, message, stack }) =>

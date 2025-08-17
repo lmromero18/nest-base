@@ -1,36 +1,35 @@
-import { NestFactory } from '@nestjs/core';
-import {
-  FastifyAdapter,
-  NestFastifyApplication,
-} from '@nestjs/platform-fastify';
-import { AppModule } from './app.module';
-import { Logger } from './common/services/logger.service';
+import { NestFactory } from "@nestjs/core";
+import { FastifyAdapter, NestFastifyApplication } from "@nestjs/platform-fastify";
+import { AppModule } from "./app.module";
+import helmet from 'helmet';
 
-declare const module: any;
+const fastifyCorsOptions = {
+  origin: true,
+  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+  allowedHeaders: [
+    'content-type',
+    'authorization',
+    'x-enc',  
+    'x-nonce',
+    'x-requested-with',
+  ],
+  exposedHeaders: [
+    'x-enc',
+    'x-nonce',
+  ],
+  credentials: true,
+  maxAge: 86400,
+};
 
-async function bootstrap() {
+const bootstrap = async (): Promise<void> => {
+  const fastify = new FastifyAdapter({ bodyLimit: 50 * 1024 * 1024 });
+  fastify.enableCors(fastifyCorsOptions);
 
-  const app = await NestFactory.create<NestFastifyApplication>(
-    AppModule,
-    new FastifyAdapter({
-      bodyLimit: 5242880000,
-    }),
-    {
-      logger: new Logger(),
-    }
-  );
-
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, fastify);
+  app.use(helmet());
   app.setGlobalPrefix('api');
 
-  await app.listen(
-    Number(process.env.APP_PORT ?? 3000),
-    process.env.APP_HOST ?? '127.0.0.1'
-  );
+  await app.listen(Number(process.env.APP_PORT ?? 3000), process.env.APP_HOST ?? '127.0.0.1');
+};
 
-
-  if (module.hot) {
-    module.hot.accept();
-    module.hot.dispose(() => app.close());
-  }
-}
 bootstrap();
