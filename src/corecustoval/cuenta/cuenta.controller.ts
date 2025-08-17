@@ -13,11 +13,10 @@ export class CuentaController {
         @Query() query: any
     ) {
         this.logger.setContext(CuentaController.name);
-        this.logger.info('Datos incorrectos', {
-            co_participante,
-            co_identificacion,
-            query,
-        });
+        this.logger.info(
+            'Datos incorrectos: ' +
+            JSON.stringify({ co_participante, co_identificacion, query })
+        );
         
         if (!co_participante || !co_identificacion) {
             return {

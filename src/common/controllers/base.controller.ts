@@ -1,12 +1,19 @@
 import {
-  Get, Post, Put, Delete, Param, Body, Query,
-  NotFoundException, HttpException, HttpStatus
+  Body,
+  Delete,
+  Get,
+  HttpException, HttpStatus,
+  NotFoundException,
+  Param,
+  Patch,
+  Post,
+  Query
 } from '@nestjs/common';
-import { BaseService } from '../services/base.service';
 import { DeepPartial, ObjectLiteral } from 'typeorm';
+import { BaseService } from '../services/base.service';
 
 export class BaseController<T extends ObjectLiteral> {
-  constructor(protected readonly service: BaseService<T>) {}
+  constructor(protected readonly service: BaseService<T>) { }
 
   @Get()
   async find(@Query() query: any) {
@@ -35,7 +42,7 @@ export class BaseController<T extends ObjectLiteral> {
     }
   }
 
-  @Put(':id')
+  @Patch(':id')
   async update(@Param('id') id: number, @Body() data: Partial<T>) {
     try {
       return await this.service.update(id, data);
@@ -48,7 +55,21 @@ export class BaseController<T extends ObjectLiteral> {
   }
 
   @Delete(':id')
-  async remove(@Param('id') id: number) {
+  async softRemove(@Param('id') id: number) {
+    try {
+      await this.service.softDelete(id);
+      return { status: 'success', message: 'Eliminado correctamente' };
+    } catch (e) {
+      throw new HttpException(
+        { status: 'error', message: 'Error al eliminar', error: e.message },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+
+  @Delete('delete/:id')
+  async hardRemove(@Param('id') id: number) {
     try {
       await this.service.remove(id);
       return { status: 'success', message: 'Eliminado correctamente' };

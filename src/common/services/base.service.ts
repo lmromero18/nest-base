@@ -172,4 +172,9 @@ export class BaseService<T extends ObjectLiteral> {
     async remove(id: any): Promise<void> {
         await this.repository.delete(id);
     }
+
+    async softDelete(id: number) {
+        return this.repository.softDelete(id);
+    }
+
 }

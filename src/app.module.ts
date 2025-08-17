@@ -1,17 +1,19 @@
-import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { Module } from '@nestjs/common';
-import { GraphQLModule } from '@nestjs/graphql';
-import { join } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { Logger } from './common/services/logger.service';
-import { CorecustovalModule } from './corecustoval/corecustoval.module';
-import { BaseHttpModule } from './modules/base-http.module';
 import { LoggerModule } from './common/modules/logger.module';
+import { loadDbConfig } from './common/utils/db-config';
+import { getEnv } from './common/utils/env';
+import { Cuenta } from './database/models/cuenta.entity';
+import { SaldoCuenta } from './database/models/saldo-cuenta.entity';
+import { BaseHttpModule } from './modules/base-http.module';
+import { DatabaseModule } from './modules/database.module';
 
 @Module({
   imports: [
-    CorecustovalModule,
+    DatabaseModule.forConnections([
+      loadDbConfig('DB_', getEnv('DB_NAME'), [Cuenta, SaldoCuenta]),
+    ]),
     BaseHttpModule,
     LoggerModule,
 

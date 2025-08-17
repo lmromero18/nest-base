@@ -26,8 +26,8 @@ export class SaldoCuenta {
   @Column({ name: 'co_moneda' })
   coMoneda: string;
 
-  @Column({ name: 'co_participante' })
-  coParticipante: string;
+  // @Column({ name: 'co_participante' })
+  // coParticipante: string;
 
   @Column({ name: 'co_identificacion' })
   coIdentificacion: string;
