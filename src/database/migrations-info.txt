@@ -1,0 +1,14 @@
+Tutorial rápido: Crear una migración personalizada en TypeORM
+
+1. Asegúrate de tener las dependencias instaladas:
+    npm install
+
+2. Verifica que la configuración de la base de datos esté correcta (variables de entorno y DataSource).
+
+3. Para crear una migración con un nombre personalizado, ejecuta:
+    npm run typeorm -- migration:generate src/database/migrations/TuNombreDeMigracion
+
+Esto generará el archivo de migración en src/database/migrations con el nombre que elegiste.
+
+4. Para ejecutar la migración, utiliza el siguiente comando:
+    npm run typeorm -- migration:run

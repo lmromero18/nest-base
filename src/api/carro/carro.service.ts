@@ -2,15 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { BaseService } from 'src/common/services/base.service';
 import { getEnv } from 'src/common/utils/env';
-import { Cuenta } from 'src/database/models/cuenta.entity';
+import { Carro } from 'src/database/models/carro.entity';
 import { Repository } from 'typeorm';
 
 @Injectable()
-export class CuentaService extends BaseService<Cuenta> {
+export class CarroService extends BaseService<Carro> {
   constructor(
-    @InjectRepository(Cuenta, getEnv('DB_NAME'))
-    private readonly cuentaRepository: Repository<Cuenta>,
+    @InjectRepository(Carro, getEnv('DB_NAME'))
+    private readonly carroRepository: Repository<Carro>,
   ) {
-    super(cuentaRepository);
+    super(carroRepository);
   }
 }
