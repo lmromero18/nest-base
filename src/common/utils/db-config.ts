@@ -2,8 +2,11 @@
 import { DbEnvConfig } from 'src/modules/database.module';
 import { getEnv } from '../utils/env';
 
-export function loadDbConfig(prefix: string, name: string, entities?: any[]): DbEnvConfig {
-  // Ej: prefix='CORE_' → CORE_HOST, CORE_PORT, CORE_USERNAME, etc.
+export function loadDbConfig(
+  prefix: string,
+  name: string,
+  entities?: any[],
+): DbEnvConfig {
   return {
     name,
     host: getEnv(`${prefix}HOST`),
@@ -15,6 +18,6 @@ export function loadDbConfig(prefix: string, name: string, entities?: any[]): Db
     prefix: getEnv(`${prefix}PREFIX`, ''),
     logging: getEnv(`${prefix}LOGGING`, 'false') === 'true',
     synchronize: getEnv(`${prefix}SYNCHRONIZE`, 'false') === 'true',
-    entities, // opcional
+    entities,
   };
 }

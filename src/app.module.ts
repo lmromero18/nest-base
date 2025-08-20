@@ -1,13 +1,15 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { APP_GUARD } from '@nestjs/core';
+import { join } from 'path';
+import { AuthModule } from './auth/auth.module';
+import { AuthGuard } from './auth/guards/auth.guard';
 import { LoggerModule } from './common/modules/logger.module';
 import { loadDbConfig } from './common/utils/db-config';
 import { getEnv } from './common/utils/env';
-import { BaseHttpModule } from './modules/base-http.module';
-import { DatabaseModule } from './modules/database.module';
 import { CryptoModule } from './crypto/crypto.module';
 import { Carro } from './database/models/carro.entity';
+import { BaseHttpModule } from './modules/base-http.module';
+import { DatabaseModule } from './modules/database.module';
 
 @Module({
   imports: [
@@ -17,9 +19,15 @@ import { Carro } from './database/models/carro.entity';
     ]),
     BaseHttpModule,
     LoggerModule,
+    AuthModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  controllers: [],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: AuthGuard,
+    },
+  ],
   exports: [],
 })
 export class AppModule {}

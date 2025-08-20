@@ -54,7 +54,10 @@ export class DatabaseModule {
   /**
    * Registro de entidades para una conexión específica (azúcar sintáctico).
    */
-  static forEntities(connectionName: DbConnName, entities: any[]): DynamicModule {
+  static forEntities(
+    connectionName: DbConnName,
+    entities: any[],
+  ): DynamicModule {
     return {
       module: DatabaseModule,
       imports: [TypeOrmModule.forFeature(entities, connectionName)],

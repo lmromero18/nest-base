@@ -1,14 +1,6 @@
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  Check,
-  BaseEntity,
-} from 'typeorm';
+import { BaseEntity, Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
-@Entity({
-  name: 'tb_carro',
-})
+@Entity({ name: 'tb_carro' })
 export class Carro extends BaseEntity {
   @PrimaryGeneratedColumn()
   id!: number;
