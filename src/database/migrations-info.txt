@@ -1,14 +1,60 @@
-Tutorial rápido: Crear una migración personalizada en TypeORM
+Tutorial: Flujo de Trabajo de Migraciones en TypeORM
+---------------------------------------------------------
 
-1. Asegúrate de tener las dependencias instaladas:
-    npm install
+-- Paso 1: Generar el archivo de migración --
 
-2. Verifica que la configuración de la base de datos esté correcta (variables de entorno y DataSource).
+Primero, crea el archivo donde escribirás los cambios para tu base de datos. Este comando no cambia la base de datos, solo "crea un archivo de plantilla".
 
-3. Para crear una migración con un nombre personalizado, ejecuta:
-    npm run typeorm -- migration:generate src/database/migrations/TuNombreDeMigracion
+Ejemplo para la base de datos "main":
+npm run migration:generate:main -- src/database/migrations/main/AddNameToUsersTable
 
-Esto generará el archivo de migración en src/database/migrations con el nombre que elegiste.
+Resultado: TypeORM creará un nuevo archivo en "src/database/migrations/main/", llamado algo como "1678886400000-AddNameToUsersTable.ts".
 
-4. Para ejecutar la migración, utiliza el siguiente comando:
-    npm run typeorm -- migration:run
+
+-- Paso 2: Editar la migración (Escribir el SQL) --
+
+Abre el archivo que acabas de generar. Verás dos métodos vacíos: up() y down().
+
+- up(): Aquí escribes el código para "aplicar" tus cambios.
+- down(): Aquí escribes el código para "revertir" o "deshacer" los cambios.
+
+Ejemplo de contenido para el archivo "...-AddNameToUsersTable.ts":
+
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class AddNameToUsersTable1678886400000 implements MigrationInterface {
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        // AÑADIMOS la columna 'name' a la tabla 'users'
+        await queryRunner.query(
+            `ALTER TABLE "users" ADD COLUMN "name" VARCHAR(255) NOT NULL`
+        );
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        // ELIMINAMOS la columna 'name' para poder revertir
+        await queryRunner.query(
+            `ALTER TABLE "users" DROP COLUMN "name"`
+        );
+    }
+}
+
+
+-- Paso 3: Ejecutar la migración --
+
+Una vez guardados los cambios, aplícalos a la base de datos. Este comando ejecutará el método "up()" de todas las migraciones nuevas.
+
+Ejemplo para la base de datos "main":
+npm run migration:run:main
+
+Resultado: Tu tabla "users" ahora tendrá la columna "name".
+
+
+-- Paso 4 (Opcional): Revertir la migración --
+
+Si necesitas deshacer el último cambio, usa este comando. Ejecutará el método "down()" de la última migración aplicada.
+
+Ejemplo para la base de datos "main":
+npm run migration:revert:main
+
+Resultado: La columna "name" será eliminada de la tabla "users".

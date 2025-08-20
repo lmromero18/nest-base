@@ -18,11 +18,16 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
-    "migration:generate": "npm run typeorm -- migration:generate",
-    "migration:create": "npm run typeorm -- migration:create src/database/migrations/ManualMigration",
-    "migration:run": "npm run typeorm -- migration:run",
-    "migration:revert": "npm run typeorm -- migration:revert"
+
+    "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/data-source.ts",
+    
+    "migration:generate:main": "cross-env DATASOURCE_NAME=main npm run typeorm -- migration:generate",
+    "migration:run:main": "cross-env DATASOURCE_NAME=main npm run typeorm -- migration:run",
+    "migration:revert:main": "cross-env DATASOURCE_NAME=main npm run typeorm -- migration:revert",
+
+    "migration:generate:secondary": "cross-env DATASOURCE_NAME=secondary npm run typeorm -- migration:generate",
+    "migration:run:secondary": "cross-env DATASOURCE_NAME=secondary npm run typeorm -- migration:run",
+    "migration:revert:secondary": "cross-env DATASOURCE_NAME=secondary npm run typeorm -- migration:revert"
   },
   "dependencies": {
     "@apollo/server": "^4.12.1",
@@ -62,6 +67,7 @@
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
+    "cross-env": "^10.0.0",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",

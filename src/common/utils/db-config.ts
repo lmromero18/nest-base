@@ -1,11 +1,28 @@
-// common/utils/db-config.ts
-import { DbEnvConfig } from 'src/modules/database.module';
+import { DataSourceOptions } from 'typeorm';
 import { getEnv } from '../utils/env';
+
+export type DbConnName = string;
+
+export interface DbEnvConfig {
+  name: DbConnName;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  database: string;
+  schema?: string;
+  prefix?: string;
+  logging?: boolean;
+  synchronize?: boolean;
+  migrations: string[];
+  entities: string[];
+}
 
 export function loadDbConfig(
   prefix: string,
   name: string,
-  entities?: any[],
+  migrationsPath: string,
+  entitiesPath: string,
 ): DbEnvConfig {
   return {
     name,
@@ -18,6 +35,29 @@ export function loadDbConfig(
     prefix: getEnv(`${prefix}PREFIX`, ''),
     logging: getEnv(`${prefix}LOGGING`, 'false') === 'true',
     synchronize: getEnv(`${prefix}SYNCHRONIZE`, 'false') === 'true',
-    entities,
+    migrations: [migrationsPath],
+    entities: [entitiesPath],
+  };
+}
+
+export function createDataSourceOptions(
+  baseConfig: any,
+  type?: 'postgres' | 'mysql' | 'sqlite',
+): DataSourceOptions {
+  return {
+    name: baseConfig.name,
+    type: type ?? 'postgres',
+    host: baseConfig.host,
+    port: baseConfig.port,
+    username: baseConfig.username,
+    password: baseConfig.password,
+    database: baseConfig.database,
+    schema: baseConfig.schema,
+    logging: baseConfig.logging,
+    synchronize: baseConfig.synchronize,
+    entityPrefix: baseConfig.prefix,
+    entities: baseConfig.entities,
+    migrations: baseConfig.migrations,
+    migrationsRun: true,
   };
 }

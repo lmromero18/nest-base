@@ -1,33 +1,40 @@
-import { config as dotenvConfig } from 'dotenv';
+import 'dotenv/config';
 import { join } from 'path';
-import 'reflect-metadata';
-import { DataSource } from 'typeorm';
+import { DataSource, DataSourceOptions } from 'typeorm';
+import { createDataSourceOptions, loadDbConfig } from '../common/utils/db-config';
+import { getEnv } from '../common/utils/env';
 
-// Load .env from project root
-dotenvConfig();
+let cliDataSource: DataSource;
 
-const DB_PREFIX = 'DB_';
+const mainOptions = createDataSourceOptions(loadDbConfig(
+  'DB_',
+  getEnv('DB_NAME'),
+  join(__dirname, 'migrations/main/*{.ts,.js}'),
+  join(__dirname, '**', '*.entity.{ts,.js}'),
+));
 
-function env(key: string, fallback?: string): string {
-  const v = process.env[key];
-  if (v === undefined || v === '') {
-    if (fallback !== undefined) return fallback;
-    throw new Error(`Env ${key} is required`);
-  }
-  return v;
+const secondaryOptions = createDataSourceOptions(loadDbConfig(
+  'DB_SECONDARY_',
+  getEnv('DB_SECONDARY_NAME'),
+  join(__dirname, 'migrations/secondary/*{.ts,.js}'),
+  join(__dirname, '**', '*.entity.{ts,.js}'),
+));
+
+const options: DataSourceOptions[] = [
+  mainOptions,
+  secondaryOptions,
+];
+
+export const appDataSourceOptions: DataSourceOptions[] = options;
+
+switch (process.env.DATASOURCE_NAME) {
+  case 'secondary':
+    cliDataSource = new DataSource(secondaryOptions);
+    break;
+  case 'main':
+  default:
+    cliDataSource = new DataSource(mainOptions);
+    break;
 }
 
-export const AppDataSource = new DataSource({
-  type: 'postgres',
-  host: env(`${DB_PREFIX}HOST`),
-  port: parseInt(env(`${DB_PREFIX}PORT`)),
-  username: env(`${DB_PREFIX}USERNAME`),
-  password: env(`${DB_PREFIX}PASSWORD`),
-  database: env(`${DB_PREFIX}DATABASE`),
-  schema: env(`${DB_PREFIX}SCHEMA`, 'public'),
-  entityPrefix: env(`${DB_PREFIX}PREFIX`, ''),
-  logging: env(`${DB_PREFIX}LOGGING`, 'false') === 'true',
-  entities: [join(__dirname, '..', '**/*.entity.{ts,js}')],
-  migrations: [join(__dirname, 'migrations/*.{ts,js}')],
-  synchronize: false,
-});
+export default cliDataSource;
