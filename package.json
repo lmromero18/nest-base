@@ -18,16 +18,18 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-
     "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js -d src/database/data-source.ts",
     
-    "migration:generate:main": "cross-env DATASOURCE_NAME=main npm run typeorm -- migration:generate",
+    "migration:generate:main": "cross-env DATASOURCE_NAME=main cross-var \"npm run typeorm -- migration:generate src/database/migrations/main/%npm_config_name%\"",
     "migration:run:main": "cross-env DATASOURCE_NAME=main npm run typeorm -- migration:run",
     "migration:revert:main": "cross-env DATASOURCE_NAME=main npm run typeorm -- migration:revert",
 
-    "migration:generate:secondary": "cross-env DATASOURCE_NAME=secondary npm run typeorm -- migration:generate",
-    "migration:run:secondary": "cross-env DATASOURCE_NAME=secondary npm run typeorm -- migration:run",
-    "migration:revert:secondary": "cross-env DATASOURCE_NAME=secondary npm run typeorm -- migration:revert"
+    "migration:generate:auth": "cross-env DATASOURCE_NAME=auth cross-var \"npm run typeorm -- migration:generate src/database/migrations/auth/%npm_config_name%\"",
+    "migration:run:auth": "cross-env DATASOURCE_NAME=auth npm run typeorm -- migration:run",
+    "migration:revert:auth": "cross-env DATASOURCE_NAME=auth npm run typeorm -- migration:revert",
+
+    "migration:run:all": "npm run migration:run:main && npm run migration:run:auth",
+    "migration:revert:all": "npm run migration:revert:main && npm run migration:revert:auth"
   },
   "dependencies": {
     "@apollo/server": "^4.12.1",
@@ -68,6 +70,7 @@
     "@types/node": "^22.10.7",
     "@types/supertest": "^6.0.2",
     "cross-env": "^10.0.0",
+    "cross-var": "^1.1.0",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
