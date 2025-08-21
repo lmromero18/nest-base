@@ -1,4 +1,9 @@
-export interface IUser {
+export interface ILoginInput {
   username: string;
-  password: string;
+  contrasena: string;
+}
+
+export enum AuthBaseStatus {
+  ACTIVO = 'ACTIVO',
+  INACTIVO = 'INACTIVO',
 }

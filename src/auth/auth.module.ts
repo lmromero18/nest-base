@@ -1,21 +1,40 @@
 import { Module } from '@nestjs/common';
-import { AuthService } from './auth.service';
-import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
-import { jwtConstants } from './auth.constants';
-import { UsersModule } from 'src/auth/users/users.module';
+import { AuthService } from './auth.service';
+import { DatabaseModule } from 'src/modules/database.module';
+import { getEnv } from 'src/common/utils/env';
+import { Usuario } from './usuario/usuario.entity';
+import { Cliente } from './cliente/cliente.entity';
+import { Rol } from './rol/rol.entity';
+import { Permiso } from './permiso/permiso.entity';
+import { UsuarioService } from './usuario/usuario.service';
+import { ClienteService } from './cliente/cliente.service';
+import { RolService } from './rol/rol.service';
+import { PermisoService } from './permiso/permiso.service';
 
 @Module({
   imports: [
-    UsersModule,
-    JwtModule.register({
-      global: true,
-      secret: jwtConstants.secret,
-      signOptions: { expiresIn: '60s' },
-    }),
+    DatabaseModule.forEntities(getEnv('AUTH_DB_NAME'), [
+      Usuario,
+      Cliente,
+      Rol,
+      Permiso,
+    ]),
   ],
-  providers: [AuthService],
   controllers: [AuthController],
-  exports: [AuthService],
+  providers: [
+    AuthService,
+    UsuarioService,
+    ClienteService,
+    RolService,
+    PermisoService,
+  ],
+  exports: [
+    AuthService,
+    UsuarioService,
+    ClienteService,
+    RolService,
+    PermisoService,
+  ],
 })
 export class AuthModule {}

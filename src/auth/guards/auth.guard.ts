@@ -4,17 +4,19 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { decode, verify } from 'jsonwebtoken';
 import { Request } from 'express';
-import { jwtConstants } from '../auth.constants';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../auth.decorator';
+import { UsuarioService } from '../usuario/usuario.service';
+import { ClienteService } from '../cliente/cliente.service';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
-    private jwtService: JwtService,
     private reflector: Reflector,
+    private usuarioService: UsuarioService,
+    private clienteService: ClienteService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -35,9 +37,19 @@ export class AuthGuard implements CanActivate {
     }
 
     try {
-      const payload = await this.jwtService.verifyAsync(token, {
-        secret: jwtConstants.secret,
-      });
+      // Decode first to figure out which secret to use (per-tenant/client)
+      const decoded: any = decode(token);
+      if (!decoded || typeof decoded !== 'object' || !decoded.sub) {
+        throw new UnauthorizedException();
+      }
+
+      const userId = decoded.sub;
+      // Load user to obtain its client id, then load client to get its secret
+      const user = await this.usuarioService.findOne(userId);
+      const client = await this.clienteService.findOne((user as any).clienteId);
+
+      const payload = verify(token, client.secreto);
+
       request['user'] = payload;
     } catch {
       throw new UnauthorizedException();

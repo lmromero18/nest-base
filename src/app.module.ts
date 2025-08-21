@@ -25,4 +25,4 @@ import { DatabaseModule } from './modules/database.module';
   ],
   exports: [],
 })
-export class AppModule { }
+export class AppModule {}

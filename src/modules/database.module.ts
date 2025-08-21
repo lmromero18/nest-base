@@ -8,7 +8,11 @@ export class DatabaseModule {
     const imports = options.map((opt) =>
       TypeOrmModule.forRootAsync({
         name: opt.name,
-        useFactory: () => opt,
+        useFactory: () => ({
+          ...opt,
+          autoLoadEntities: true,
+          entities: [],
+        }),
       }),
     );
 

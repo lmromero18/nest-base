@@ -28,7 +28,7 @@ const authOptions = createDataSourceOptions(
     getEnv('AUTH_DB_NAME'),
     // src/database/migrations/auth/*.ts
     join(__dirname, 'migrations', 'auth', '*{.ts,.js}'),
-    // src/database/models/**/*.entity.ts
+    // src/database/models/auth/**/*.entity.ts
     join(__dirname, '..', 'auth', '**', '*.entity{.ts,.js}'),
   ),
 );

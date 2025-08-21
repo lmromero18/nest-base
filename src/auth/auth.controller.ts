@@ -8,7 +8,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { Public } from './auth.decorator';
-import { IUser } from './auth.interfaces';
+import { ILoginInput } from './auth.interfaces';
 import { AuthService } from './auth.service';
 
 @Controller('auth')
@@ -18,8 +18,8 @@ export class AuthController {
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('login')
-  signIn(@Body() user: IUser) {
-    return this.authService.signIn(user.username, user.password);
+  signIn(@Body() user: ILoginInput) {
+    return this.authService.signIn(user.username, user.contrasena);
   }
 
   @Get('profile')
