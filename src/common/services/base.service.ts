@@ -162,8 +162,8 @@ export class BaseService<T extends ObjectLiteral> {
     return { data };
   }
 
-  async findOne(id: any): Promise<T> {
-    return this.repository.findOneByOrFail({ id });
+  async findOne(id: any): Promise<T | null> {
+    return this.repository.findOneBy({ id });
   }
 
   // Finds one entity by a specific column and value. Returns null if not found.
@@ -178,7 +178,7 @@ export class BaseService<T extends ObjectLiteral> {
     return this.repository.findOne({ where, ...(options || {}) });
   }
 
-  async update(id: any, data: QueryDeepPartialEntity<T>): Promise<T> {
+  async update(id: any, data: QueryDeepPartialEntity<T>): Promise<T | null> {
     await this.repository.update(id, data);
     return this.findOne(id);
   }

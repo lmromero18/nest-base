@@ -18,7 +18,13 @@ export class AuthService {
     if (user?.contrasena !== contrasena) {
       throw new UnauthorizedException();
     }
+
     const client = await this.clienteService.findOne(user.clienteId);
+
+    if (!client) {
+      throw new UnauthorizedException();
+    }
+
     const payload = { username: user.username, sub: user.id };
     const token = sign(payload, client.secreto, { expiresIn: '60s' });
     return { access_token: token };
