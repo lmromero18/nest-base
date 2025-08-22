@@ -9,7 +9,6 @@ import {
   DeleteDateColumn,
 } from 'typeorm';
 import { Cliente } from '../cliente/cliente.entity';
-import { AuthBaseStatus } from '../auth.interfaces';
 
 @Entity({ name: 'tb_permiso' })
 export class Permiso {

@@ -10,8 +10,8 @@ import {
   DeleteDateColumn,
   BeforeInsert,
 } from 'typeorm';
-import { AuthBaseStatus } from '../auth.interfaces';
 import { randomBytes } from 'crypto';
+import { Exclude } from 'class-transformer';
 
 @Entity({ name: 'tb_cliente' })
 export class Cliente {
@@ -39,6 +39,7 @@ export class Cliente {
   @OneToMany(() => Cliente, (cliente) => cliente.clientePadre)
   hijos: Cliente[];
 
+  @Exclude({ toPlainOnly: true })
   @Column({ name: 'tx_secreto', type: 'varchar', length: 128 })
   secreto: string;
 

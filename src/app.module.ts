@@ -1,4 +1,9 @@
-import { Module } from '@nestjs/common';
+import {
+  MiddlewareConsumer,
+  Module,
+  NestModule,
+  RequestMethod,
+} from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { AuthGuard } from './auth/guards/auth.guard';
@@ -7,6 +12,7 @@ import { CryptoModule } from './crypto/crypto.module';
 import { appDataSourceOptions } from './database/data-source';
 import { BaseHttpModule } from './modules/base-http.module';
 import { DatabaseModule } from './modules/database.module';
+import { ClienteFilterMiddleware } from './common/middlewares/client-filter.middleware';
 
 @Module({
   imports: [
@@ -22,7 +28,16 @@ import { DatabaseModule } from './modules/database.module';
       provide: APP_GUARD,
       useClass: AuthGuard,
     },
+    ClienteFilterMiddleware,
   ],
   exports: [],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(ClienteFilterMiddleware)
+      // Exclude only auth/login (public) to avoid double token work
+      .exclude({ path: 'auth/login', method: RequestMethod.POST })
+      .forRoutes('*');
+  }
+}

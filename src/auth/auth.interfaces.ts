@@ -3,7 +3,11 @@ export interface ILoginInput {
   contrasena: string;
 }
 
-export enum AuthBaseStatus {
-  ACTIVO = 'ACTIVO',
-  INACTIVO = 'INACTIVO',
+export interface IJWT {
+  sub: number;
+  aud: string;
+  scp: string[];
+  usr: Record<string, any>;
+  iat: number;
+  exp: number;
 }

@@ -8,9 +8,12 @@ import {
   UpdateDateColumn,
   DeleteDateColumn,
   RelationId,
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 import { Cliente } from '../cliente/cliente.entity';
-import { AuthBaseStatus } from '../auth.interfaces';
+import { Rol } from '../rol/rol.entity';
 
 @Entity({ name: 'tb_usuario' })
 export class Usuario {
@@ -20,6 +23,7 @@ export class Usuario {
   @Column({ name: 'nb_username', unique: true })
   username: string;
 
+  @Exclude({ toPlainOnly: true })
   @Column({ name: 'tx_contrasena' })
   contrasena: string;
 
@@ -48,4 +52,12 @@ export class Usuario {
   @RelationId((usuario: Usuario) => usuario.cliente)
   @Column({ name: 'id_cliente' })
   clienteId: number;
+
+  @ManyToMany(() => Rol, (rol) => rol.usuarios, { cascade: false })
+  @JoinTable({
+    name: 'tb_usuario_rol',
+    joinColumn: { name: 'id_usuario', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'id_rol', referencedColumnName: 'id' },
+  })
+  roles?: Rol[];
 }

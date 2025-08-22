@@ -28,6 +28,7 @@ export class BaseController<T extends ObjectLiteral> {
     if (!entity) {
       throw new NotFoundException('Recurso no encontrado');
     }
+    return entity;
   }
 
   @Post()
@@ -45,7 +46,12 @@ export class BaseController<T extends ObjectLiteral> {
   @Patch(':id')
   async update(@Param('id') id: number, @Body() data: Partial<T>) {
     try {
-      return await this.service.update(id, data);
+      const updatedEntity = await this.service.update(id, data);
+      if (!updatedEntity) {
+        throw new NotFoundException('Recurso no encontrado');
+      } else {
+        return updatedEntity;
+      }
     } catch (e) {
       throw new HttpException(
         { status: 'error', message: 'Error al actualizar', error: e.message },

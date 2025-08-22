@@ -11,6 +11,8 @@ import { UsuarioService } from './usuario/usuario.service';
 import { ClienteService } from './cliente/cliente.service';
 import { RolService } from './rol/rol.service';
 import { PermisoService } from './permiso/permiso.service';
+import { ClienteController } from './cliente/cliente.controller';
+import { UsuarioController } from './usuario/usuario.controller';
 
 @Module({
   imports: [
@@ -21,7 +23,7 @@ import { PermisoService } from './permiso/permiso.service';
       Permiso,
     ]),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, ClienteController, UsuarioController],
   providers: [
     AuthService,
     UsuarioService,

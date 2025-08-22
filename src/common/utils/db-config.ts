@@ -44,6 +44,7 @@ export function createDataSourceOptions(
   baseConfig: any,
   type?: 'postgres' | 'mysql' | 'sqlite',
 ): DataSourceOptions {
+  const dbTimezone = 'America/Caracas';
   return {
     name: baseConfig.name,
     type: type ?? 'postgres',
@@ -59,5 +60,11 @@ export function createDataSourceOptions(
     entities: baseConfig.entities,
     migrations: baseConfig.migrations,
     migrationsRun: true,
+    // For Postgres, pass connection options to set the session timezone.
+    // pg supports the `options` parameter, where we can set GUCs like timezone.
+    extra: {
+      ...(baseConfig.extra ?? {}),
+      options: `-c timezone=${dbTimezone}`,
+    },
   };
 }

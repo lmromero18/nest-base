@@ -1,4 +1,5 @@
-import { NestFactory } from '@nestjs/core';
+import { NestFactory, Reflector } from '@nestjs/core';
+import { ClassSerializerInterceptor } from '@nestjs/common';
 import {
   FastifyAdapter,
   NestFastifyApplication,
@@ -31,9 +32,11 @@ const bootstrap = async (): Promise<void> => {
   );
   app.use(helmet());
   app.setGlobalPrefix('api');
+  // Enable global serialization so @Exclude/@Expose work on entities
+  app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
   await app.listen(
-    Number(process.env.APP_PORT ?? 3000),
+    Number(process.env.APP_PORT ?? 4000),
     process.env.APP_HOST ?? '127.0.0.1',
   );
 };

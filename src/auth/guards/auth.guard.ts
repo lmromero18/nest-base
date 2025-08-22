@@ -9,14 +9,13 @@ import { Request } from 'express';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../auth.decorator';
 import { UsuarioService } from '../usuario/usuario.service';
-import { ClienteService } from '../cliente/cliente.service';
+// ClienteService no longer needed; client is loaded via user relation
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
     private reflector: Reflector,
     private usuarioService: UsuarioService,
-    private clienteService: ClienteService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -37,23 +36,37 @@ export class AuthGuard implements CanActivate {
     }
 
     try {
-      // Decode first to figure out which secret to use (per-tenant/client)
+      // Decode unverified to discover aud (clienteId) and sub (user id)
       const decoded: any = decode(token);
-      if (!decoded || typeof decoded !== 'object' || !decoded.sub) {
+      if (
+        !decoded ||
+        typeof decoded !== 'object' ||
+        !decoded.sub ||
+        !decoded.aud
+      ) {
         throw new UnauthorizedException();
       }
 
       const userId = decoded.sub;
-      // Load user to obtain its client id, then load client to get its secret
-      const user = await this.usuarioService.findOne(userId);
-      const client = await this.clienteService.findOne((user as any).clienteId);
+      const clienteId = decoded.aud;
 
-      if (!client) {
+      // Prefer verifying with client secret via user lookup only once
+      const userWithClient = await this.usuarioService.findOneBy('id', userId, {
+        relations: ['cliente'],
+      });
+
+      if (
+        !userWithClient ||
+        !userWithClient.cliente ||
+        String(userWithClient.cliente.id) !== String(clienteId)
+      ) {
         throw new UnauthorizedException();
       }
 
-      const payload = verify(token, client.secreto);
+      const clientSecret = userWithClient.cliente.secreto;
+      const payload = verify(token, clientSecret);
 
+      // Attach payload as user; keep aud/sub/scp/usr
       request['user'] = payload;
     } catch {
       throw new UnauthorizedException();
