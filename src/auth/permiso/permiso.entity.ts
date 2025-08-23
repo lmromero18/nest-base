@@ -16,7 +16,13 @@ export class Permiso {
   id: number;
 
   @Column({ name: 'co_permiso', unique: true })
-  coPermiso: string;
+  codigo: string;
+
+  @Column({ name: 'nb_permiso' })
+  nombre: string;
+
+  @Column({ name: 'tx_descripcion', nullable: true })
+  descripcion?: string;
 
   @CreateDateColumn({ name: 'ts_creacion' })
   tsCreacion: Date;

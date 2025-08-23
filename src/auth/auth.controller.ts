@@ -22,8 +22,10 @@ export class AuthController {
     return this.authService.signIn(user.username, user.contrasena);
   }
 
-  @Get('profile')
-  getProfile(@Request() req) {
-    return req.user;
+  @HttpCode(HttpStatus.OK)
+  @Post('refresh')
+  refresh(@Request() request) {
+    console.log({ request });
+    return this.authService.refresh(request.user);
   }
 }

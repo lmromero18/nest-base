@@ -8,14 +8,14 @@ import { decode, verify } from 'jsonwebtoken';
 import { Request } from 'express';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../auth.decorator';
-import { UsuarioService } from '../usuario/usuario.service';
+import { TokenAccesoService } from '../token/token-acceso.service';
 // ClienteService no longer needed; client is loaded via user relation
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
     private reflector: Reflector,
-    private usuarioService: UsuarioService,
+    private tokenAccesoService: TokenAccesoService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -35,42 +35,65 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
+    // Track decoded payload and token record for potential revocation on failure
+    let decoded: any;
+    let tokenAcceso: any = null;
     try {
-      // Decode unverified to discover aud (clienteId) and sub (user id)
-      const decoded: any = decode(token);
+      // Decode unverified to fetch JID (jit)
+      decoded = decode(token);
+      if (!decoded || typeof decoded !== 'object' || !decoded.jit) {
+        throw new UnauthorizedException();
+      }
+
+      // Single lookup: load token record with its client to get the secret
+      tokenAcceso = await this.tokenAccesoService.findOneBy(
+        'jid',
+        decoded.jit,
+        {
+          relations: ['cliente'],
+        },
+      );
+
+      if (!tokenAcceso || tokenAcceso.isRevocado) {
+        throw new UnauthorizedException();
+      }
+
+      // Optional: enforce DB expiration too
       if (
-        !decoded ||
-        typeof decoded !== 'object' ||
-        !decoded.sub ||
-        !decoded.aud
+        tokenAcceso.tsExpiracion &&
+        tokenAcceso.tsExpiracion.getTime() <= Date.now()
       ) {
         throw new UnauthorizedException();
       }
 
-      const userId = decoded.sub;
-      const clienteId = decoded.aud;
+      const clientSecret = tokenAcceso.cliente?.secreto;
+      if (!clientSecret) {
+        throw new UnauthorizedException();
+      }
 
-      // Prefer verifying with client secret via user lookup only once
-      const userWithClient = await this.usuarioService.findOneBy('id', userId, {
-        relations: ['cliente'],
-      });
+      const payload: any = verify(token, clientSecret);
 
+      // Integrity checks: sub and aud must match the DB record
       if (
-        !userWithClient ||
-        !userWithClient.cliente ||
-        String(userWithClient.cliente.id) !== String(clienteId)
+        String(payload.sub) !== String(tokenAcceso.usuarioId) ||
+        String(payload.aud) !== String(tokenAcceso.clienteId)
       ) {
         throw new UnauthorizedException();
       }
 
-      const clientSecret = userWithClient.cliente.secreto;
-      const payload = verify(token, clientSecret);
-
-      // Attach payload as user; keep aud/sub/scp/usr
       request['user'] = payload;
     } catch {
+      // Best-effort: revoke the token record if available or by jit
+      try {
+        if (tokenAcceso && tokenAcceso.jid && !tokenAcceso.isRevocado) {
+          await this.tokenAccesoService.revokeByJid(tokenAcceso.jid);
+        } else if (decoded && decoded.jit) {
+          await this.tokenAccesoService.revokeByJid(decoded.jit);
+        }
+      } catch {}
       throw new UnauthorizedException();
     }
+
     return true;
   }
 

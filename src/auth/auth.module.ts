@@ -13,6 +13,8 @@ import { RolService } from './rol/rol.service';
 import { PermisoService } from './permiso/permiso.service';
 import { ClienteController } from './cliente/cliente.controller';
 import { UsuarioController } from './usuario/usuario.controller';
+import { TokenAcceso } from './token/token-acceso.entity';
+import { TokenAccesoService } from './token/token-acceso.service';
 
 @Module({
   imports: [
@@ -21,6 +23,7 @@ import { UsuarioController } from './usuario/usuario.controller';
       Cliente,
       Rol,
       Permiso,
+      TokenAcceso,
     ]),
   ],
   controllers: [AuthController, ClienteController, UsuarioController],
@@ -30,6 +33,7 @@ import { UsuarioController } from './usuario/usuario.controller';
     ClienteService,
     RolService,
     PermisoService,
+    TokenAccesoService,
   ],
   exports: [
     AuthService,
@@ -37,6 +41,7 @@ import { UsuarioController } from './usuario/usuario.controller';
     ClienteService,
     RolService,
     PermisoService,
+    TokenAccesoService,
   ],
 })
 export class AuthModule {}

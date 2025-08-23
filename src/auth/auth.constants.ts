@@ -1,3 +1,1 @@
-export const jwtConstants = {
-  secret: 'EJEMPLO DE UN SECRET',
-};
+export const TOKEN_SIGN_ALGORITHM = 'HS256';
