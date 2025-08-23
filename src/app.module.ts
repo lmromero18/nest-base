@@ -36,8 +36,8 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(ClienteFilterMiddleware)
-      // Exclude only auth/login (public) to avoid double token work
       .exclude({ path: 'auth/login', method: RequestMethod.POST })
-      .forRoutes('*');
+      .forRoutes({ path: 'api/*path', method: RequestMethod.ALL });
   }
 }
+

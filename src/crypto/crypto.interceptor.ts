@@ -16,7 +16,6 @@ const RES_HEADER_ENC = 'X-Enc';
 const RES_HEADER_NONCE = 'X-Nonce';
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 
-// Narrow type for envelope-like objects without importing heavy validation libs
 function isEnvelopeLike(b: unknown): b is Envelope {
   return (
     !!b &&
