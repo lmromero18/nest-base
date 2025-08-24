@@ -59,6 +59,8 @@ import { AppModule } from './app.module';
 import helmet from '@fastify/helmet';
 import { getEnv } from './common/utils/env';
 import { Logger as AppLogger } from './common/services/logger.service';
+// HMR declaration must be at top-level
+declare const module: any;
 
 const fastifyCorsOptions = {
   origin: true,
@@ -83,6 +85,8 @@ const bootstrap = async (): Promise<void> => {
     AppModule,
     fastify,
   );
+  // Ensure the app handles shutdown to free the port
+  app.enableShutdownHooks(['SIGINT', 'SIGTERM']);
   const appLogger = app.get(AppLogger);
   app.useLogger(appLogger);
   await app.register(helmet, {
@@ -98,6 +102,14 @@ const bootstrap = async (): Promise<void> => {
     Number(process.env.APP_PORT ?? 4000),
     process.env.APP_HOST ?? '127.0.0.1',
   );
+
+  // On HMR rebuild, close the server to ensure the port is released
+  if (module?.hot) {
+    module.hot.accept();
+    module.hot.dispose(async () => {
+      await app.close();
+    });
+  }
 };
 
 bootstrap();
