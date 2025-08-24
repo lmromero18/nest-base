@@ -15,7 +15,7 @@ export class AuthService {
     private usuarioService: UsuarioService,
     private clienteService: ClienteService,
     private tokenAccesoService: TokenAccesoService,
-  ) {}
+  ) { }
 
   async signIn(username: string, contrasena: string): Promise<ITokenResponse> {
     const user = await this.usuarioService.findOneBy('username', username, {
@@ -93,7 +93,7 @@ export class AuthService {
     const scopes = this.buildScopes(user);
     const usr = this.buildUser(user);
 
-    const totalMinutes = 0.5;
+    const totalMinutes = Math.max(1, Number(client.nuTiempoTokenMin ?? 30));
     const totalSeconds = 60 * totalMinutes;
     const now = Math.floor(Date.now() / 1000);
     const exp = now + totalSeconds;
@@ -104,6 +104,7 @@ export class AuthService {
       cliente: client,
       isRevocado: false,
       tsExpiracion: new Date(exp * 1000),
+      nuDuracionMin: totalMinutes,
     } as Partial<TokenAcceso>);
 
     const payload: IJWT = {

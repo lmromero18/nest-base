@@ -21,6 +21,10 @@ export class Cliente {
   @Column({ name: 'nb_cliente', unique: true })
   nombre: string;
 
+  // Token duration in minutes for this client (used for JWT exp)
+  @Column({ name: 'nu_tiempo_token_min', type: 'int', default: 30 })
+  nuTiempoTokenMin: number;
+
   @DeleteDateColumn({ name: 'ts_eliminacion', nullable: true })
   tsEliminacion?: Date;
 

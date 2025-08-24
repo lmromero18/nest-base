@@ -15,6 +15,7 @@ import { ClienteController } from './cliente/cliente.controller';
 import { UsuarioController } from './usuario/usuario.controller';
 import { TokenAcceso } from './token/token-acceso.entity';
 import { TokenAccesoService } from './token/token-acceso.service';
+import { TokenCleanupService } from './token/token-cleanup.service';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { TokenAccesoService } from './token/token-acceso.service';
     RolService,
     PermisoService,
     TokenAccesoService,
+    TokenCleanupService,
   ],
   exports: [
     AuthService,
@@ -42,6 +44,7 @@ import { TokenAccesoService } from './token/token-acceso.service';
     RolService,
     PermisoService,
     TokenAccesoService,
+    TokenCleanupService,
   ],
 })
 export class AuthModule {}

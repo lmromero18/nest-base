@@ -13,6 +13,7 @@ import { appDataSourceOptions } from './database/data-source';
 import { BaseHttpModule } from './modules/base-http.module';
 import { DatabaseModule } from './modules/database.module';
 import { ClienteFilterMiddleware } from './common/middlewares/client-filter.middleware';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ClienteFilterMiddleware } from './common/middlewares/client-filter.midd
     DatabaseModule.forConnections(appDataSourceOptions),
     BaseHttpModule,
     LoggerModule,
+    ScheduleModule.forRoot(),
     AuthModule,
   ],
   controllers: [],

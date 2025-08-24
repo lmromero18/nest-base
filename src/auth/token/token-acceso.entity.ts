@@ -38,6 +38,9 @@ export class TokenAcceso {
   @Column({ name: 'ts_expiracion' })
   tsExpiracion: Date;
 
+  @Column({ name: 'nu_duracion_min', type: 'int', default: 30 })
+  nuDuracionMin: number;
+
   @CreateDateColumn({ name: 'ts_creacion' })
   tsCreacion: Date;
 
