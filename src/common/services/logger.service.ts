@@ -36,7 +36,7 @@ export class Logger extends ConsoleLogger implements OnModuleInit {
         });
 
         this.logger = winston.createLogger({
-            level: getEnv('LOG_LEVEL', 'info'),
+            level: getEnv('LOG_LEVEL', 'silly'),
             format: winston.format.combine(
                 winston.format.timestamp(),
                 winston.format.errors({ stack: true }),
@@ -134,6 +134,12 @@ export class Logger extends ConsoleLogger implements OnModuleInit {
     }
 
     info(message: any, context?: string, ...optionalParams: any[]) {
+        super.log(message, context, ...optionalParams);
+        this.logger.info(this.format(message, context, optionalParams));
+    }
+
+    // Ensure generic Nest Logger.log() writes to info.log as well
+    log(message: any, context?: string, ...optionalParams: any[]) {
         super.log(message, context, ...optionalParams);
         this.logger.info(this.format(message, context, optionalParams));
     }
