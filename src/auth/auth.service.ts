@@ -15,10 +15,11 @@ export class AuthService {
     private usuarioService: UsuarioService,
     private clienteService: ClienteService,
     private tokenAccesoService: TokenAccesoService,
-  ) { }
+  ) {}
 
   async signIn(username: string, contrasena: string): Promise<ITokenResponse> {
-    const user = await this.usuarioService.findOneBy('username', username, {
+    // Single DB query: username OR correo using the same input
+    const user = await this.usuarioService.findOneByUsernameOrCorreo(username, {
       relations: ['cliente', 'roles', 'roles.permisos'],
     });
 
