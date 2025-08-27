@@ -32,6 +32,7 @@
   "migration:revert:all": "npm run migration:revert:main && npm run migration:revert:auth"
   },
   "dependencies": {
+  "@fastify/cookie": "^11.0.2",
     "@apollo/server": "^4.12.1",
     "@fastify/helmet": "^13.0.1",
     "@nestjs/axios": "^4.0.0",
