@@ -47,7 +47,6 @@ export class AuthController {
   ) {
     const isProd = process.env.NODE_ENV === 'production';
     const cookieDomain = process.env.COOKIE_DOMAIN;
-    console.log('COOKIE_DOMAIN:', cookieDomain);
 
     res.setCookie('access_token', jwt, {
       httpOnly: true,
