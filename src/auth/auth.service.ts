@@ -35,6 +35,13 @@ export class AuthService {
     return this.mintToken(user, client);
   }
 
+  async logout(user: IJWT): Promise<void> {
+    // Revoke only the current access token using its JID from the JWT payload
+    if (user?.jit) {
+      await this.tokenAccesoService.revokeByJid(user.jit);
+    }
+  }
+
   async refresh(current: IJWT): Promise<ITokenResponse> {
     const user = await this.usuarioService.findOneBy('id', current.sub, {
       relations: ['cliente', 'roles', 'roles.permisos'],
@@ -78,12 +85,11 @@ export class AuthService {
     Usuario,
     'username' | 'correo' | 'isEmailVerificado' | 'jsonAtributos'
   > {
-    const { cliente, roles, ...usrBase } = user;
     return {
-      username: usrBase.username,
-      correo: usrBase.correo,
-      isEmailVerificado: usrBase.isEmailVerificado,
-      jsonAtributos: usrBase.jsonAtributos ?? {},
+      username: user.username,
+      correo: user.correo,
+      isEmailVerificado: user.isEmailVerificado,
+      jsonAtributos: user.jsonAtributos ?? {},
     };
   }
 

@@ -12,6 +12,7 @@ import { Public } from './auth.decorator';
 import { ILoginInput } from './auth.interfaces';
 import { AuthService } from './auth.service';
 import { FastifyReply } from 'fastify';
+import { ACCESS_TOKEN_NAME } from './constants';
 
 @Controller('auth')
 export class AuthController {
@@ -40,6 +41,17 @@ export class AuthController {
     return token;
   }
 
+  @HttpCode(HttpStatus.OK)
+  @Post('logout')
+  async logout(
+    @Request() request,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ) {
+    await this.authService.logout(request.user);
+    this.clearAuthCookie(res);
+    return null;
+  }
+
   private setAuthCookie(
     res: FastifyReply,
     jwt: string,
@@ -48,12 +60,25 @@ export class AuthController {
     const isProd = process.env.NODE_ENV === 'production';
     const cookieDomain = process.env.COOKIE_DOMAIN;
 
-    res.setCookie('access_token', jwt, {
+    res.setCookie(ACCESS_TOKEN_NAME, jwt, {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
       path: '/',
       maxAge: expiresInSeconds,
+      domain: cookieDomain || undefined,
+    });
+  }
+
+  private clearAuthCookie(res: FastifyReply) {
+    const isProd = process.env.NODE_ENV === 'production';
+    const cookieDomain = process.env.COOKIE_DOMAIN;
+    res.clearCookie(ACCESS_TOKEN_NAME, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
+      path: '/',
+      domain: cookieDomain || undefined,
     });
   }
 }

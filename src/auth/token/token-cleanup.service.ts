@@ -10,7 +10,7 @@ export class TokenCleanupService {
     private readonly logger: AppLogger,
   ) {}
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron(CronExpression.EVERY_11_HOURS)
   async revokeExpiredTokens(): Promise<void> {
     this.logger.info(`Revoking expired tokens...`, TokenCleanupService.name);
     const now = new Date();

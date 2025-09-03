@@ -9,6 +9,7 @@ import { Request } from 'express';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../auth.decorator';
 import { TokenAccesoService } from '../token/token-acceso.service';
+import { ACCESS_TOKEN_NAME } from '../constants';
 // ClienteService no longer needed; client is loaded via user relation
 
 @Injectable()
@@ -100,7 +101,7 @@ export class AuthGuard implements CanActivate {
   private extractTokenFromHeader(request: Request): string | undefined {
     const [type, token] = request.headers.authorization?.split(' ') ?? [];
     if (type === 'Bearer' && token) return token;
-    const cookieToken = (request as any).cookies?.['access_token'];
+    const cookieToken = (request as any).cookies?.[ACCESS_TOKEN_NAME];
     return cookieToken;
   }
 }
