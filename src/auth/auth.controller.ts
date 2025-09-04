@@ -1,17 +1,16 @@
 import {
   Body,
   Controller,
-  Get,
   HttpCode,
   HttpStatus,
   Post,
   Request,
   Res,
 } from '@nestjs/common';
+import { FastifyReply } from 'fastify';
 import { Public } from './auth.decorator';
 import { ILoginInput } from './auth.interfaces';
 import { AuthService } from './auth.service';
-import { FastifyReply } from 'fastify';
 import { ACCESS_TOKEN_NAME } from './constants';
 
 @Controller('auth')
@@ -36,7 +35,10 @@ export class AuthController {
     @Request() request,
     @Res({ passthrough: true }) res: FastifyReply,
   ) {
-    const token = await this.authService.refresh(request.user);
+    const [_, token] = await Promise.all([
+      this.authService.logout(request.user),
+      this.authService.refresh(request.user),
+    ]);
     this.setAuthCookie(res, token.access_token, token.expires_in);
     return token;
   }
