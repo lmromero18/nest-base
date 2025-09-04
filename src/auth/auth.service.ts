@@ -81,14 +81,19 @@ export class AuthService {
   private buildUser(
     user: Usuario,
   ): Pick<
-    Usuario,
-    'username' | 'correo' | 'isEmailVerificado' | 'jsonAtributos'
+    Usuario & { isSuperUsuario: boolean },
+    | 'username'
+    | 'correo'
+    | 'isEmailVerificado'
+    | 'jsonAtributos'
+    | 'isSuperUsuario'
   > {
     return {
       username: user.username,
       correo: user.correo,
       isEmailVerificado: user.isEmailVerificado,
       jsonAtributos: user.jsonAtributos ?? {},
+      isSuperUsuario: user.roles?.some((r) => r.isSuperUsuario) ?? false,
     };
   }
 

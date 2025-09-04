@@ -22,6 +22,9 @@ export class Rol {
   @Column({ name: 'nb_rol', unique: true })
   nombre: string;
 
+  @Column({ name: 'is_super_usuario', default: false })
+  isSuperUsuario: boolean;
+
   @DeleteDateColumn({ name: 'ts_eliminacion', nullable: true })
   tsEliminacion?: Date;
 
