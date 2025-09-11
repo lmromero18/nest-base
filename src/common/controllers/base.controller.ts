@@ -2,13 +2,12 @@ import {
   Body,
   Delete,
   Get,
-  HttpException,
-  HttpStatus,
   NotFoundException,
   Param,
   Patch,
   Post,
   Query,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { DeepPartial, ObjectLiteral } from 'typeorm';
 import { BaseService } from '../services/base.service';
@@ -36,10 +35,7 @@ export class BaseController<T extends ObjectLiteral> {
     try {
       return await this.service.create(data);
     } catch (e) {
-      throw new HttpException(
-        { status: 'error', message: 'Error al crear', error: e.message },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new UnprocessableEntityException('Error al crear');
     }
   }
 
@@ -53,10 +49,7 @@ export class BaseController<T extends ObjectLiteral> {
         return updatedEntity;
       }
     } catch (e) {
-      throw new HttpException(
-        { status: 'error', message: 'Error al actualizar', error: e.message },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new UnprocessableEntityException('Error al actualizar');
     }
   }
 
@@ -66,10 +59,7 @@ export class BaseController<T extends ObjectLiteral> {
       await this.service.softDelete(id);
       return { status: 'success', message: 'Eliminado correctamente' };
     } catch (e) {
-      throw new HttpException(
-        { status: 'error', message: 'Error al eliminar', error: e.message },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new UnprocessableEntityException('Error al eliminar');
     }
   }
 
@@ -79,10 +69,7 @@ export class BaseController<T extends ObjectLiteral> {
       await this.service.remove(id);
       return { status: 'success', message: 'Eliminado correctamente' };
     } catch (e) {
-      throw new HttpException(
-        { status: 'error', message: 'Error al eliminar', error: e.message },
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new UnprocessableEntityException('Error al eliminar');
     }
   }
 }
