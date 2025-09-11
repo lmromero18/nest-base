@@ -28,8 +28,12 @@
   "migration:run:auth": "cross-env DATASOURCE_NAME=auth node -r ts-node/register -r tsconfig-paths/register src/database/scripts/ensure-schema.ts && cross-env DATASOURCE_NAME=auth npm run typeorm -- migration:run",
   "migration:revert:auth": "cross-env DATASOURCE_NAME=auth npm run typeorm -- migration:revert",
 
-  "migration:run:all": "npm run migration:run:main && npm run migration:run:auth",
-  "migration:revert:all": "npm run migration:revert:main && npm run migration:revert:auth"
+  "migration:generate:notification": "cross-env DATASOURCE_NAME=notification cross-var \"npm run typeorm -- migration:generate src/database/migrations/notification/${npm_config_name}\"",
+  "migration:run:notification": "cross-env DATASOURCE_NAME=notification node -r ts-node/register -r tsconfig-paths/register src/database/scripts/ensure-schema.ts && cross-env DATASOURCE_NAME=notification npm run typeorm -- migration:run",
+  "migration:revert:notification": "cross-env DATASOURCE_NAME=notification npm run typeorm -- migration:revert",
+
+  "migration:run:all": "npm run migration:run:main && npm run migration:run:auth && npm run migration:run:notification",
+  "migration:revert:all": "npm run migration:revert:main && npm run migration:revert:auth && npm run migration:revert:notification"
   },
   "dependencies": {
   "@fastify/cookie": "^11.0.2",
@@ -51,7 +55,8 @@
     "pg": "^8.16.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "typeorm": "^0.3.24",
+  "typeorm": "^0.3.24",
+  "nodemailer": "^6.9.14",
     "winston": "^3.17.0",
     "winston-daily-rotate-file": "^5.0.0"
   },

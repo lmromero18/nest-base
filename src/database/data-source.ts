@@ -33,13 +33,31 @@ const authOptions = createDataSourceOptions(
   ),
 );
 
-const options: DataSourceOptions[] = [mainOptions, authOptions];
+const notificationOptions = createDataSourceOptions(
+  loadDbConfig(
+    'NOTIFICATION_DB_',
+    getEnv('NOTIFICATION_DB_NAME'),
+    // src/database/migrations/notification/*.ts
+    join(__dirname, 'migrations', 'notification', '*{.ts,.js}'),
+    // src/database/models/notification/**/*.entity.ts
+    join(__dirname, '..', 'notification', '**', '*.entity{.ts,.js}'),
+  ),
+);
+
+const options: DataSourceOptions[] = [
+  mainOptions,
+  authOptions,
+  notificationOptions,
+];
 
 export const appDataSourceOptions: DataSourceOptions[] = options;
 
 switch (process.env.DATASOURCE_NAME) {
   case 'auth':
     cliDataSource = new DataSource(authOptions);
+    break;
+  case 'notification':
+    cliDataSource = new DataSource(notificationOptions);
     break;
   case 'main':
   default:

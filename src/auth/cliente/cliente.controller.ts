@@ -1,13 +1,11 @@
 import {
   Body,
   Controller,
-  HttpException,
-  HttpStatus,
   Post,
+  UnprocessableEntityException,
 } from '@nestjs/common';
-import { BaseController } from 'src/common/controllers/base.controller';
-import { ClienteService } from './cliente.service';
 import { Cliente } from './cliente.entity';
+import { ClienteService } from './cliente.service';
 
 @Controller('auth/cliente')
 export class ClienteController {
@@ -18,10 +16,7 @@ export class ClienteController {
     try {
       return await this.clienteService.create(data);
     } catch (e) {
-      throw new HttpException(
-        { status: 'error', message: 'Error al crear', error: e.message },
-        HttpStatus.UNPROCESSABLE_ENTITY,
-      );
+      throw new UnprocessableEntityException('Error al crear');
     }
   }
 }
