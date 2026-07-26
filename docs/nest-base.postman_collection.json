@@ -1,9 +1,8 @@
 {
   "info": {
-    "_postman_id": "5c2962f0-eef5-48c2-bbc9-c296724bb73b",
-    "name": "CENSO API PUBLICO",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "_exporter_id": "26766333"
+    "_postman_id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    "name": "NEST-BASE API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
@@ -59,42 +58,6 @@
       ]
     },
     {
-      "name": "Campamentos",
-      "item": [
-        {
-          "name": "GET - Resumen",
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{authToken}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/campamentos/resumen",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "campamentos",
-                "resumen"
-              ]
-            },
-            "description": "Devuelve el resumen de niños registrados por campamento, género y rango de edad. Requiere token Bearer."
-          },
-          "response": []
-        }
-      ]
-    },
-    {
       "name": "Health",
       "item": [
         {
@@ -123,15 +86,15 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:3002"
+      "value": "http://localhost:3000"
     },
     {
       "key": "username",
-      "value": "V12345678"
+      "value": ""
     },
     {
       "key": "password",
-      "value": "MTIzNDU2Nzg="
+      "value": ""
     },
     {
       "key": "authToken",

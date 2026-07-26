@@ -1,14 +1,11 @@
 import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { sensoDatabaseConfig } from './database.config';
+import { baseDatabaseConfig } from './database.config';
 import { DATABASE_CONNECTIONS } from './database.constants';
 
-const connections = [TypeOrmModule.forRoot(sensoDatabaseConfig())];
+const connections = [TypeOrmModule.forRoot(baseDatabaseConfig())];
 
-const entityModule = TypeOrmModule.forFeature(
-  [],
-  DATABASE_CONNECTIONS.BASE,
-);
+const entityModule = TypeOrmModule.forFeature([], DATABASE_CONNECTIONS.BASE);
 
 @Global()
 @Module({

@@ -1,14 +1,9 @@
-// Strongly-typed contracts for the Notification feature
+// Contratos tipados del feature de notificaciones
 
 export enum NotificationType {
   EMAIL = 'EMAIL',
   SMS = 'SMS',
   PUSH = 'PUSH',
-}
-
-export interface NotificationCreateContext {
-  clientId?: string | number | null;
-  userId?: string | number | null;
 }
 
 export interface SendResult {

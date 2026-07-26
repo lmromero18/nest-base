@@ -1,14 +1,37 @@
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
-import { getEnv } from '../../common/utils/env';
+import type { PostgresConnectionOptions } from 'typeorm/driver/postgres/PostgresConnectionOptions';
+import { getBoolEnv, getEnv, getNumberEnv } from '../../common/utils/env';
 import { DATABASE_CONNECTIONS } from './database.constants';
 
-const toBoolean = (value: string, defaultValue = false): boolean => {
-  if (value === undefined || value === null || value === '') {
-    return defaultValue;
-  }
-
-  return ['true', '1', 'yes', 'y'].includes(value.toLowerCase());
-};
+/**
+ * Opciones de conexión compartidas entre la app (DatabaseModule) y el CLI de
+ * TypeORM (data-source.ts para migraciones).
+ */
+export const basePostgresOptions = (
+  prefix: string,
+): Omit<PostgresConnectionOptions, 'entities' | 'migrations'> => ({
+  type: 'postgres',
+  host: getEnv(`${prefix}_HOST`, 'localhost'),
+  port: getNumberEnv(`${prefix}_PORT`, 5432),
+  username: getEnv(`${prefix}_USERNAME`, 'postgres'),
+  password: getEnv(`${prefix}_PASSWORD`, 'postgres'),
+  database: getEnv(`${prefix}_DATABASE`, 'postgres'),
+  schema: getEnv(`${prefix}_SCHEMA`, 'public'),
+  synchronize: getBoolEnv(`${prefix}_SYNCHRONIZE`),
+  logging: getBoolEnv(`${prefix}_LOGGING`),
+  ssl: getBoolEnv(`${prefix}_SSL`)
+    ? {
+        rejectUnauthorized: getBoolEnv(
+          `${prefix}_SSL_REJECT_UNAUTHORIZED`,
+          true,
+        ),
+      }
+    : false,
+  extra: {
+    max: getNumberEnv(`${prefix}_POOL_MAX`, 10),
+    idleTimeoutMillis: getNumberEnv(`${prefix}_POOL_IDLE_MS`, 30_000),
+  },
+});
 
 const createPostgresConfig = (
   name: string,
@@ -16,18 +39,10 @@ const createPostgresConfig = (
 ): TypeOrmModuleOptions => {
   return {
     name,
-    type: 'postgres',
-    host: getEnv(`${prefix}_HOST`, 'localhost'),
-    port: Number(getEnv(`${prefix}_PORT`, '5432')),
-    username: getEnv(`${prefix}_USERNAME`, 'postgres'),
-    password: getEnv(`${prefix}_PASSWORD`, 'postgres'),
-    database: getEnv(`${prefix}_DATABASE`, 'postgres'),
-    schema: getEnv(`${prefix}_SCHEMA`, 'public'),
+    ...basePostgresOptions(prefix),
     autoLoadEntities: true,
-    synchronize: toBoolean(getEnv(`${prefix}_SYNCHRONIZE`, 'false')),
-    logging: toBoolean(getEnv(`${prefix}_LOGGING`, 'false')),
   };
 };
 
-export const sensoDatabaseConfig = (): TypeOrmModuleOptions =>
+export const baseDatabaseConfig = (): TypeOrmModuleOptions =>
   createPostgresConfig(DATABASE_CONNECTIONS.BASE, 'DB_BASE');

@@ -1,7 +1,7 @@
 import {
-  BaseEntity,
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   PrimaryGeneratedColumn,
@@ -10,7 +10,7 @@ import {
 import { NotificationType } from './notification.types';
 
 @Entity({ name: 'tb_notification' })
-export class Notification extends BaseEntity {
+export class Notification {
   @PrimaryGeneratedColumn({ name: 'id_notification' })
   id!: number;
 
@@ -39,6 +39,10 @@ export class Notification extends BaseEntity {
   @Column({ type: 'int', default: 0, name: 'nu_attempts' })
   attempts!: number;
 
+  @Index()
+  @Column({ type: 'timestamp', nullable: true, name: 'ts_next_retry_at' })
+  tsNextRetryAt?: Date | null;
+
   @Column({ type: 'text', nullable: true, name: 'tx_last_error' })
   lastError?: string | null;
 
@@ -55,4 +59,7 @@ export class Notification extends BaseEntity {
 
   @UpdateDateColumn({ name: 'ts_updated_at' })
   tsUpdatedAt!: Date;
+
+  @DeleteDateColumn({ name: 'ts_deleted_at' })
+  tsDeletedAt?: Date | null;
 }

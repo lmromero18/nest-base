@@ -1,20 +1,22 @@
+import { MethodNotAllowedException } from '@nestjs/common';
 import {
-  Repository,
   DeepPartial,
-  ObjectLiteral,
+  EntityManager,
+  EntityMetadata,
   FindManyOptions,
   FindOneOptions,
-  Not,
-  In,
-  IsNull,
-  Between,
-  LessThanOrEqual,
-  MoreThanOrEqual,
-  ILike,
+  FindOptionsOrder,
   FindOptionsWhere,
-  Raw,
+  ObjectLiteral,
+  Repository,
 } from 'typeorm';
-import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
+import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata';
+import { RequestContext } from '../context/request-context';
+import {
+  ParsedListQuery,
+  QuerySchema,
+  QueryStringParser,
+} from '../query/query-string-parser';
 
 export interface PaginatedResponse<T> {
   data: T[];
@@ -26,430 +28,125 @@ export interface PaginatedResponse<T> {
   to: number | null;
 }
 
-export class BaseService<T extends ObjectLiteral> {
+export interface MutationOptions {
+  /** EntityManager transaccional (dataSource.transaction(async (manager) => ...)). */
+  manager?: EntityManager;
+}
+
+type ListFindOptions<T extends ObjectLiteral> = Omit<
+  FindManyOptions<T>,
+  'where' | 'skip' | 'take' | 'order' | 'relations'
+>;
+
+/**
+ * Servicio CRUD genérico sobre un Repository de TypeORM.
+ *
+ * Configuración sobrescribible en el servicio hijo:
+ *
+ *   class PersonaService extends BaseService<Persona> {
+ *     protected override readonly filterable = ['nombre', 'estado', 'ciudad.nombre'];
+ *     protected override readonly sortable = ['nombre', 'id'];
+ *     protected override readonly allowedRelations = ['ciudad'];
+ *     protected override readonly maxPerPage = 50;
+ *   }
+ *
+ * Sin configurar, se exponen todas las columnas visibles (las marcadas con
+ * `select: false` quedan siempre excluidas de filtros y ordenamiento).
+ */
+export abstract class BaseService<T extends ObjectLiteral> {
+  /** Rutas filtrables (columnas o "relacion.columna"). undefined = todas las visibles. */
+  protected readonly filterable?: string[];
+  /** Columnas raíz ordenables vía orderBy. undefined = todas las visibles. */
+  protected readonly sortable?: string[];
+  /** Relaciones expuestas (rutas con punto para anidadas). undefined = todas. */
+  protected readonly allowedRelations?: string[];
+  protected readonly defaultPerPage: number = 20;
+  protected readonly maxPerPage: number = 100;
+  /** Permite perPage=0 (traer todo). Por defecto se degrada a maxPerPage. */
+  protected readonly allowUnpaginated: boolean = false;
+  /**
+   * Columnas de auditoría estampadas automáticamente (si existen en la entidad)
+   * con el usuario del RequestContext. Sobrescribir con null para desactivar.
+   */
+  protected readonly auditColumns: {
+    created: string;
+    updated: string;
+  } | null = { created: 'idCreado', updated: 'idActualizado' };
+
+  private parserInstance?: QueryStringParser;
+
   constructor(protected readonly repository: Repository<T>) {}
 
+  // --- Lectura --------------------------------------------------------------
+
+  /**
+   * Listado paginado a partir del query-string crudo del request.
+   * El contrato de filtros está documentado en QueryStringParser.
+   */
   async find(
-    page = 1,
-    limit = 20,
-    filters: Record<string, any> = {},
-    options?: Omit<FindManyOptions<T>, 'where' | 'skip' | 'take'>,
+    query: Record<string, unknown> = {},
+    options?: ListFindOptions<T>,
   ): Promise<PaginatedResponse<T>> {
-    const validColumns = this.repository.metadata.columns.map(
-      (col) => col.propertyName,
-    );
-    const validRelations = this.repository.metadata.relations.map(
-      (r) => r.propertyName,
-    );
-
-    // --- Ajustar parámetros de paginación ---
-    const toPositiveInt = (val: any, fallback: number): number => {
-      if (val === undefined || val === null || val === '') return fallback;
-      const n =
-        typeof val === 'number' ? Math.trunc(val) : parseInt(String(val), 10);
-      return Number.isNaN(n) || n <= 0 ? fallback : n;
-    };
-
-    if (filters.perPage !== undefined) {
-      // Permitimos perPage=0 para desactivar paginación más adelante
-      const parsed = parseInt(String(filters.perPage), 10);
-      limit = Number.isNaN(parsed) ? limit : parsed; // puede ser 0
-    }
-
-    if (filters.page !== undefined) {
-      page = toPositiveInt(filters.page, 1);
-    }
-
-    // Construcción de filtros (where) con soporte para notación de relación "relation.column"
-    const where: any = {};
-    // Convierte un valor a lista para operadores IN/NOT IN. Acepta array o CSV string
-    const toList = (val: any): any[] => {
-      if (Array.isArray(val)) return val;
-      const parts = String(val)
-        .split(',')
-        .map((s) => s.trim())
-        .filter((s) => s !== '');
-      return parts.map((p) => {
-        const n = Number(p);
-        return isNaN(n) ? p : n;
-      });
-    };
-    const assignNested = (obj: any, path: string[], val: any) => {
-      let current = obj;
-      for (let i = 0; i < path.length - 1; i++) {
-        const seg = path[i];
-        if (!current[seg] || typeof current[seg] !== 'object')
-          current[seg] = {};
-        current = current[seg];
-      }
-      current[path[path.length - 1]] = val;
-    };
-
-    for (const rawKey of Object.keys(filters)) {
-      const value = filters[rawKey];
-      if (value === undefined) continue;
-
-      // Soporte operadores sufijo en columna simple (no relación)
-      const processDirectFilter = (field: string, operator: string | null) => {
-        if (!validColumns.includes(field)) return false;
-        switch (operator) {
-          case '_like':
-            where[field] = Raw(
-              (alias) =>
-                `CAST(${alias} AS varchar) ILIKE :value::varchar`,
-              { value: `%${String(value)}%` },
-            );
-            return true;
-          case '_gte':
-            where[field] = MoreThanOrEqual(value);
-            return true;
-          case '_lte':
-            where[field] = LessThanOrEqual(value);
-            return true;
-          case '_between': {
-            const [min, max] = String(value).split(',');
-            where[field] = Between(min, max);
-            return true;
-          }
-          case '_null':
-            where[field] = IsNull();
-            return true;
-          case '_not':
-            {
-              const list = toList(value);
-              if (list.length > 0) {
-                where[field] = Not(In(list));
-              }
-            }
-            return true;
-          default:
-            where[field] = value;
-            return true;
-        }
-      };
-
-      // Detectar si es relación: formato relation.column (posible cadena más profunda relation.sub.column)
-      if (rawKey.includes('.')) {
-        const pathParts = rawKey.split('.');
-        // Validar que el primer segmento sea una relación válida; si no, ignorar filtro silenciosamente
-        if (!validRelations.includes(pathParts[0])) {
-          continue;
-        }
-        const last = pathParts[pathParts.length - 1];
-        // Operadores en último segmento (e.g. relation.column_like no soportado por ahora -> se podría extender)
-        if (/_like$|_gte$|_lte$|_between$|_null$|_not$/.test(last)) {
-          // Extraer operador y campo
-          const opMatch = last.match(/(_like|_gte|_lte|_between|_null|_not)$/);
-          if (opMatch) {
-            const op = opMatch[1];
-            const pureField = last.replace(op, '');
-            pathParts[pathParts.length - 1] = pureField; // sustituir por nombre puro
-            let comparator: any;
-            switch (op) {
-              case '_like':
-                comparator = ILike(`%${value}%`);
-                break;
-              case '_gte':
-                comparator = MoreThanOrEqual(value);
-                break;
-              case '_lte':
-                comparator = LessThanOrEqual(value);
-                break;
-              case '_between': {
-                const [min, max] = String(value).split(',');
-                comparator = Between(min, max);
-                break;
-              }
-              case '_null':
-                comparator = IsNull();
-                break;
-              case '_not':
-                {
-                  const list = toList(value);
-                  if (list.length > 0) {
-                    comparator = Not(In(list));
-                  } else {
-                    comparator = undefined as any;
-                  }
-                }
-                break;
-            }
-            if (typeof comparator !== 'undefined') {
-              assignNested(where, pathParts, comparator);
-            }
-            continue;
-          }
-        }
-        // Caso simple relation.column = valor
-        assignNested(where, pathParts, value);
-        continue;
-      }
-
-      // Campo simple con sufijo operador
-      const suffixMatch = rawKey.match(
-        /(_like|_gte|_lte|_between|_null|_not)$/,
-      );
-      if (suffixMatch) {
-        const operator = suffixMatch[1];
-        const field = rawKey.replace(operator, '');
-        if (processDirectFilter(field, operator)) continue;
-      }
-
-      // Campo simple directo
-      processDirectFilter(rawKey, null);
-    }
-
-    // Ordenamiento
-    const order: any = {};
-    if (filters.orderBy) {
-      const fields = String(filters.orderBy).split(',');
-      for (const field of fields) {
-        const [col, dir = 'ASC'] = field.trim().split(':');
-        if (validColumns.includes(col)) {
-          order[col] = dir.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-        }
-      }
-    }
-
-    // Relaciones (acepta string CSV o array directamente)
-    let relations: string[] = [];
-    if (Array.isArray(filters.with)) {
-      const validRelationPropertyNames = this.repository.metadata.relations.map(
-        (rel) => rel.propertyName,
-      );
-      relations = filters.with
-        .filter((r: any) => typeof r === 'string')
-        .filter((r: string) => {
-          const root = r.split('.')[0];
-          return validRelationPropertyNames.includes(root);
-        });
-    } else if (typeof filters.with === 'string') {
-      const requested = filters.with
-        .split(',')
-        .map((r) => r.trim())
-        .filter(Boolean);
-      const validRelationPropertyNames = this.repository.metadata.relations.map(
-        (rel) => rel.propertyName,
-      );
-      relations = requested.filter((r) => {
-        const root = r.split('.')[0];
-        return validRelationPropertyNames.includes(root);
-      });
-    }
-    // Eliminar duplicados manteniendo orden
-    relations = Array.from(new Set(relations));
-
-    // --- OR Support (_or) ---
-    // Permite enviar _or como: JSON array '[{"field":1},{"field":2}]' o como 'a=1&b=2|a=3'
-    const buildPartialWhere = (obj: Record<string, any>): any => {
-      const partial: any = {};
-      for (const k of Object.keys(obj)) {
-        const v = obj[k];
-        if (v === undefined) continue;
-        if (k.includes('.')) {
-          const pathParts = k.split('.');
-          if (!validRelations.includes(pathParts[0])) continue; // se ignora si no es relación válida
-          assignNested(partial, pathParts, v);
-          continue;
-        }
-        if (!validColumns.includes(k)) continue;
-        partial[k] = v;
-      }
-      return partial;
-    };
-
-    let finalWhere: any = where; // por defecto AND base
-    if (filters.or) {
-      let orBlocks: any[] = [];
-      const rawOr = String(filters.or).trim();
-      try {
-        if (rawOr.startsWith('[')) {
-          const parsed = JSON.parse(rawOr);
-          if (Array.isArray(parsed)) {
-            orBlocks = parsed
-              .map((p) =>
-                p && typeof p === 'object' ? buildPartialWhere(p) : null,
-              )
-              .filter(Boolean);
-          }
-        } else {
-          // formato segments separados por |
-          const segments = rawOr
-            .split('|')
-            .map((s) => s.trim())
-            .filter(Boolean);
-          for (const seg of segments) {
-            const obj: Record<string, any> = {};
-            const pairs = seg
-              .split('&')
-              .map((p) => p.trim())
-              .filter(Boolean);
-            for (const pair of pairs) {
-              const [key, ...rest] = pair.split('=');
-              if (!key) continue;
-              obj[key] = decodeURIComponent(rest.join('='));
-            }
-            orBlocks.push(buildPartialWhere(obj));
-          }
-        }
-      } catch (e) {
-        // Parse fallido: ignoramos _or
-        orBlocks = [];
-      }
-      if (orBlocks.length > 0) {
-        finalWhere = orBlocks.map((block) => ({ ...where, ...block }));
-      }
-    }
-
-    // Si se desactiva la paginación
-    if (filters.perPage == 0) {
-      const data = await this.repository.find({
-        where: finalWhere,
-        order,
-        relations,
-        ...options,
-      });
-
-      return {
-        data,
-        total: data.length,
-        currentPage: 1,
-        lastPage: 1,
-        perPage: data.length,
-        from: data.length > 0 ? 1 : null,
-        to: data.length > 0 ? data.length : null,
-      };
-    }
-
-    const skip = (page - 1) * limit;
-
-    // Consulta paginada
-    const [data, total] = await this.repository.findAndCount({
-      where: finalWhere,
-      skip,
-      take: limit,
-      order,
-      relations,
+    const parsed = this.parseListQuery(query);
+    const findOptions: FindManyOptions<T> = {
+      where: parsed.where as FindOptionsWhere<T> | FindOptionsWhere<T>[],
+      order: parsed.order as FindOptionsOrder<T>,
+      relations: parsed.relations,
       ...options,
+    };
+
+    if (!parsed.paginate) {
+      const data = await this.repository.find(findOptions);
+      return this.buildPaginatedResponse(data, data.length, 1, data.length);
+    }
+
+    const skip = (parsed.page - 1) * parsed.perPage;
+    const [data, total] = await this.repository.findAndCount({
+      ...findOptions,
+      skip,
+      take: parsed.perPage,
     });
 
-    const lastPage = Math.ceil(total / limit) || 1;
-    const from = total > 0 ? skip + 1 : null;
-    const to = total > 0 ? skip + data.length : null;
-
-    // --- Return Formatted Response ---
-    return {
+    return this.buildPaginatedResponse(
       data,
       total,
-      currentPage: page,
-      lastPage,
-      perPage: limit,
-      from,
-      to,
-    };
-  }
-
-  async create(data: DeepPartial<T>): Promise<T> {
-    const entity = this.repository.create(data);
-    return this.repository.save(entity);
-  }
-
-  async findAll(): Promise<{ data: T[] }> {
-    const data = await this.repository.find();
-    return { data };
+      parsed.page,
+      parsed.perPage,
+    );
   }
 
   /**
-   * Obtiene un registro por su PK permitiendo cargar relaciones igual que en find().
-   * Uso rápido:
-   *  service.findOne(id, { with: 'rel1,rel2' })
-   *  service.findOne(id, { relations: ['rel1', 'rel2'] })
+   * Obtiene un registro por su PK permitiendo cargar relaciones igual que en find():
+   *   service.findOne(id, { with: 'rel1,rel2.sub' })
    */
   async findOne(
-    id: any,
+    id: unknown,
     filters: { with?: string } = {},
-    options?: Omit<FindOneOptions<T>, 'where' | 'relations'> & {
-      relations?: string[];
-    },
+    options?: Omit<FindOneOptions<T>, 'where' | 'relations'>,
   ): Promise<T | null> {
-    // Normalizamos relaciones desde filters.with o options.relations
-    let relations: string[] | undefined = options?.relations;
-    if (filters.with) {
-      const validRelationPropertyNames = this.repository.metadata.relations.map(
-        (r) => r.propertyName,
-      );
-      const requested = filters.with
-        .split(',')
-        .map((r) => r.trim())
-        .filter(Boolean);
-      relations = requested.filter((r) => {
-        const root = r.split('.')[0];
-        return validRelationPropertyNames.includes(root);
-      });
-      relations = Array.from(new Set(relations));
-    }
-    return this.findByPk(id, { ...(options || {}), relations });
+    const relations = filters.with
+      ? this.parseListQuery({ with: filters.with }).relations
+      : undefined;
+    return this.findByPk(id, { ...(options ?? {}), relations });
   }
 
   /**
-   * Generic Primary Key finder.
-   * Accepts either:
-   *  - Primitive (string/number) when the entity has a SINGLE primary column.
-   *  - Object with shape { pk1: val1, pk2: val2 } for composite keys.
-   * Performs light type coercion (string->number) for numeric PK columns.
+   * Buscador genérico por PK. Acepta primitivo (PK simple) u objeto
+   * { pk1: v1, pk2: v2 } (PK compuesta). Coerce string→number en PKs numéricas.
    */
   async findByPk(
-    pkValue: any,
+    pkValue: unknown,
     options?: Omit<FindOneOptions<T>, 'where'>,
   ): Promise<T | null> {
-    const primaryColumns = this.repository.metadata.primaryColumns;
-    if (!primaryColumns.length) return null;
-
-    // If composite key expected, require an object with all keys
-    if (primaryColumns.length > 1) {
-      if (typeof pkValue !== 'object' || pkValue === null) {
-        // Cannot resolve composite PK from primitive
-        return null;
-      }
-      // Build where ensuring only primary columns are taken
-      const where: any = {};
-      for (const col of primaryColumns) {
-        if (pkValue[col.propertyName] === undefined) return null; // missing a component
-        where[col.propertyName] = this.coercePkType(
-          col,
-          pkValue[col.propertyName],
-        );
-      }
-      return this.repository.findOne({ where, ...(options || {}) });
-    }
-
-    // Single primary column
-    const pkCol = primaryColumns[0];
-    if (typeof pkValue === 'object' && pkValue !== null) {
-      // If an object is passed, try to extract the single pk prop
-      if (pkValue[pkCol.propertyName] === undefined) return null;
-      pkValue = pkValue[pkCol.propertyName];
-    }
-    const coerced = this.coercePkType(pkCol, pkValue);
+    const where = this.buildPkWhere(pkValue);
+    if (!where) return null;
     return this.repository.findOne({
-      where: { [pkCol.propertyName]: coerced } as any,
-      ...(options || {}),
+      where: where as FindOptionsWhere<T>,
+      ...(options ?? {}),
     });
   }
 
-  private coercePkType(column: { type: any; propertyName: string }, val: any) {
-    if (val == null) return val;
-    if (typeof val === 'string') {
-      const colType = String(column.type || '').toLowerCase();
-      if (/int|numeric|decimal|number|bigint/.test(colType)) {
-        const parsed = Number(val);
-        if (!Number.isNaN(parsed)) return parsed;
-      }
-    }
-    return val;
-  }
-
-  // Finds one entity by a specific column and value. Returns null if not found.
+  /** Busca un registro por una columna específica. */
   async findOneBy<K extends keyof T>(
     column: K,
     value: T[K],
@@ -458,114 +155,320 @@ export class BaseService<T extends ObjectLiteral> {
     const where = {
       [column as string]: value,
     } as unknown as FindOptionsWhere<T>;
-    return this.repository.findOne({ where, ...(options || {}) });
+    return this.repository.findOne({ where, ...(options ?? {}) });
   }
 
-  async update(id: any, data: QueryDeepPartialEntity<T>): Promise<T | null> {
-    await this.repository.update(id, data);
-    return this.findOne(id);
+  /** Total de registros que cumplen los filtros del query-string. */
+  async count(query: Record<string, unknown> = {}): Promise<number> {
+    const parsed = this.parseListQuery(query);
+    return this.repository.count({
+      where: parsed.where as FindOptionsWhere<T> | FindOptionsWhere<T>[],
+    });
+  }
+
+  /** ¿Existe al menos un registro que cumpla los filtros? */
+  async exists(query: Record<string, unknown> = {}): Promise<boolean> {
+    const parsed = this.parseListQuery(query);
+    return this.repository.exists({
+      where: parsed.where as FindOptionsWhere<T> | FindOptionsWhere<T>[],
+    });
+  }
+
+  // --- Escritura ------------------------------------------------------------
+
+  /**
+   * Crea un registro. Las columnas generadas (PK autoincremental/uuid) y las
+   * de timestamps/soft-delete se descartan del payload: el cliente nunca
+   * puede fijarlas (evita sobrescrituras vía POST con id existente).
+   */
+  async create(data: DeepPartial<T>, options?: MutationOptions): Promise<T> {
+    const repo = this.repo(options);
+    const payload = this.sanitizeWritePayload(data);
+    this.stampAudit(payload, 'created');
+    const entity = repo.create(payload as DeepPartial<T>);
+    return repo.save(entity);
   }
 
   /**
-   * Actualiza por PK dinámica (simple o compuesta). Si no existe, retorna null.
+   * Actualiza por PK usando preload + save, de modo que corren los listeners
+   * (@BeforeUpdate) y se pueden actualizar relaciones. Retorna null si no existe.
    */
-  /**
-   * Busca por una columna única (no PK), actualiza usando la PK real.
-   * Útil para entidades donde txDescripcion es PK pero se busca por id* numérico.
-   */
-  async updateByUniqueColumn(
-    column: string,
-    value: any,
-    data: QueryDeepPartialEntity<T>,
+  async updateByPk(
+    pk: unknown,
+    data: DeepPartial<T>,
+    options?: MutationOptions,
   ): Promise<T | null> {
-    const entity = await this.findOneBy(column as any, value);
+    const repo = this.repo(options);
+    const pkWhere = this.buildPkWhere(pk);
+    if (!pkWhere) return null;
+
+    const payload = this.sanitizeWritePayload(data);
+    this.stampAudit(payload, 'updated');
+
+    const entity = await repo.preload({
+      ...pkWhere,
+      ...payload,
+    } as DeepPartial<T>);
     if (!entity) return null;
 
+    return repo.save(entity);
+  }
+
+  /** Busca por una columna única (no PK) y actualiza usando la PK real. */
+  async updateByUniqueColumn<K extends keyof T>(
+    column: K,
+    value: T[K],
+    data: DeepPartial<T>,
+    options?: MutationOptions,
+  ): Promise<T | null> {
+    const entity = await this.findOneBy(column, value);
+    if (!entity) return null;
+    return this.updateByPk(entity, data, options);
+  }
+
+  /** Borrado físico por PK. Retorna false si no existía. */
+  async removeByPk(pk: unknown, options?: MutationOptions): Promise<boolean> {
+    const where = this.buildPkWhere(pk);
+    if (!where) return false;
+    const result = await this.repo(options).delete(
+      where as FindOptionsWhere<T>,
+    );
+    return (result.affected ?? 0) > 0;
+  }
+
+  /** Busca por una columna única (no PK) y elimina usando la PK real. */
+  async removeByUniqueColumn<K extends keyof T>(
+    column: K,
+    value: T[K],
+    options?: MutationOptions,
+  ): Promise<boolean> {
+    const entity = await this.findOneBy(column, value);
+    if (!entity) return false;
+    return this.removeByPk(entity, options);
+  }
+
+  /**
+   * Borrado lógico por PK. Lanza 405 si la entidad no tiene @DeleteDateColumn.
+   * Retorna false si no existía.
+   */
+  async softDeleteByPk(
+    pk: unknown,
+    options?: MutationOptions,
+  ): Promise<boolean> {
+    this.assertSoftDeleteSupport();
+    const where = this.buildPkWhere(pk);
+    if (!where) return false;
+    const result = await this.repo(options).softDelete(
+      where as FindOptionsWhere<T>,
+    );
+    return (result.affected ?? 0) > 0;
+  }
+
+  /** Restaura un registro borrado lógicamente. Retorna false si no aplicó. */
+  async restoreByPk(pk: unknown, options?: MutationOptions): Promise<boolean> {
+    this.assertSoftDeleteSupport();
+    const where = this.buildPkWhere(pk);
+    if (!where) return false;
+    const result = await this.repo(options).restore(
+      where as FindOptionsWhere<T>,
+    );
+    return (result.affected ?? 0) > 0;
+  }
+
+  /** Indica si la entidad soporta borrado lógico (@DeleteDateColumn). */
+  supportsSoftDelete(): boolean {
+    return Boolean(this.repository.metadata.deleteDateColumn);
+  }
+
+  // --- Infraestructura ------------------------------------------------------
+
+  /** Parseo del query-string con el schema/allowlists de esta entidad. */
+  protected parseListQuery(query: Record<string, unknown>): ParsedListQuery {
+    if (!this.parserInstance) {
+      this.parserInstance = new QueryStringParser(this.buildQuerySchema(), {
+        defaultPerPage: this.defaultPerPage,
+        maxPerPage: this.maxPerPage,
+        allowUnpaginated: this.allowUnpaginated,
+      });
+    }
+    return this.parserInstance.parse(query);
+  }
+
+  /** Repositorio efectivo: el transaccional si se pasó un manager. */
+  protected repo(options?: MutationOptions): Repository<T> {
+    return options?.manager
+      ? options.manager.getRepository<T>(this.repository.target)
+      : this.repository;
+  }
+
+  private buildQuerySchema(): QuerySchema {
+    const rootMetadata = this.repository.metadata;
+    const filterableSet = this.filterable ? new Set(this.filterable) : null;
+    const sortableSet = this.sortable ? new Set(this.sortable) : null;
+    const relationSet = this.allowedRelations
+      ? new Set(this.allowedRelations)
+      : null;
+
+    const resolveRelationChain = (path: string[]): EntityMetadata | null => {
+      let current = rootMetadata;
+      for (const segment of path) {
+        const relation = current.relations.find(
+          (r) => r.propertyName === segment,
+        );
+        if (!relation) return null;
+        current = relation.inverseEntityMetadata;
+      }
+      return current;
+    };
+
+    const isRelationAllowed = (relationPath: string[]): boolean =>
+      relationSet === null || relationSet.has(relationPath.join('.'));
+
+    const isVisibleColumn = (
+      metadata: EntityMetadata,
+      column: string,
+    ): boolean => {
+      const col = metadata.columns.find((c) => c.propertyName === column);
+      // Las columnas select:false (ej. hashes) jamás se exponen a filtros
+      return Boolean(col && col.isSelect);
+    };
+
+    return {
+      isFilterable: (path: string[]): boolean => {
+        if (path.length === 0 || path.some((segment) => segment === '')) {
+          return false;
+        }
+        if (filterableSet && !filterableSet.has(path.join('.'))) {
+          return false;
+        }
+        if (path.length === 1) {
+          return isVisibleColumn(rootMetadata, path[0]);
+        }
+        const relationPath = path.slice(0, -1);
+        if (!isRelationAllowed(relationPath)) return false;
+        const target = resolveRelationChain(relationPath);
+        return (
+          target !== null && isVisibleColumn(target, path[path.length - 1])
+        );
+      },
+
+      isSortable: (column: string): boolean => {
+        if (sortableSet && !sortableSet.has(column)) return false;
+        return isVisibleColumn(rootMetadata, column);
+      },
+
+      isRelationPath: (path: string[]): boolean => {
+        if (path.length === 0 || path.some((segment) => segment === '')) {
+          return false;
+        }
+        if (!isRelationAllowed(path)) return false;
+        return resolveRelationChain(path) !== null;
+      },
+    };
+  }
+
+  private buildPkWhere(pk: unknown): Record<string, unknown> | null {
     const primaryColumns = this.repository.metadata.primaryColumns;
     if (!primaryColumns.length) return null;
 
-    const pkCol = primaryColumns[0];
-    const pkValue = (entity as any)[pkCol.propertyName];
-    await this.repository.update({ [pkCol.propertyName]: pkValue } as any, data);
-    return this.findByPk(pkValue);
+    if (primaryColumns.length === 1) {
+      const column = primaryColumns[0];
+      let value = pk;
+      if (typeof pk === 'object' && pk !== null) {
+        value = (pk as Record<string, unknown>)[column.propertyName];
+      }
+      if (value === undefined || value === null) return null;
+      return { [column.propertyName]: this.coercePkType(column, value) };
+    }
+
+    if (typeof pk !== 'object' || pk === null) return null;
+    const where: Record<string, unknown> = {};
+    for (const column of primaryColumns) {
+      const value = (pk as Record<string, unknown>)[column.propertyName];
+      if (value === undefined) return null;
+      where[column.propertyName] = this.coercePkType(column, value);
+    }
+    return where;
+  }
+
+  private coercePkType(column: ColumnMetadata, value: unknown): unknown {
+    if (value == null || typeof value !== 'string') return value;
+    const colType = String(column.type || '').toLowerCase();
+    if (/int|numeric|decimal|number|bigint/.test(colType)) {
+      const parsed = Number(value);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+    return value;
   }
 
   /**
-   * Busca por una columna única (no PK), elimina usando la PK real.
+   * Elimina del payload columnas que el cliente no debe controlar:
+   * PKs generadas, timestamps automáticos, soft-delete y versión.
    */
-  async removeByUniqueColumn(column: string, value: any): Promise<boolean> {
-    const entity = await this.findOneBy(column as any, value);
-    if (!entity) return false;
-
-    const primaryColumns = this.repository.metadata.primaryColumns;
-    if (!primaryColumns.length) return false;
-
-    const pkCol = primaryColumns[0];
-    const pkValue = (entity as any)[pkCol.propertyName];
-    const res = await this.repository.delete({ [pkCol.propertyName]: pkValue } as any);
-    return (res.affected ?? 0) > 0;
-  }
-
-  async updateByPk(
-    pk: any,
-    data: QueryDeepPartialEntity<T>,
-  ): Promise<T | null> {
-    const entity = await this.findByPk(pk);
-    if (!entity) return null;
-    const primaryColumns = this.repository.metadata.primaryColumns.map(
-      (c) => c.propertyName,
-    );
-    const where: any = {};
-    if (primaryColumns.length === 1) {
-      where[primaryColumns[0]] =
-        typeof pk === 'object' && pk !== null ? pk[primaryColumns[0]] : pk;
-    } else {
-      for (const col of primaryColumns) where[col] = pk[col];
-    }
-    await this.repository.update(where, data);
-    return this.findByPk(pk);
-  }
-
-  async remove(id: any): Promise<void> {
-    await this.repository.delete(id);
-  }
-
-  async removeByPk(pk: any): Promise<boolean> {
-    const primaryColumns = this.repository.metadata.primaryColumns.map(
-      (c) => c.propertyName,
-    );
-    const where: any = {};
-    if (primaryColumns.length === 1) {
-      where[primaryColumns[0]] =
-        typeof pk === 'object' && pk !== null ? pk[primaryColumns[0]] : pk;
-    } else {
-      for (const col of primaryColumns) {
-        if (pk[col] === undefined) return false;
-        where[col] = pk[col];
+  private sanitizeWritePayload(data: DeepPartial<T>): Record<string, unknown> {
+    const payload: Record<string, unknown> = {
+      ...(data as Record<string, unknown>),
+    };
+    for (const column of this.repository.metadata.columns) {
+      const isProtected =
+        column.isGenerated ||
+        column.isCreateDate ||
+        column.isUpdateDate ||
+        column.isDeleteDate ||
+        column.isVersion;
+      if (isProtected) {
+        delete payload[column.propertyName];
       }
     }
-    const res = await this.repository.delete(where);
-    return (res.affected ?? 0) > 0;
+    return payload;
   }
 
-  async softDelete(id: number) {
-    return this.repository.softDelete(id);
-  }
+  private stampAudit(
+    payload: Record<string, unknown>,
+    kind: 'created' | 'updated',
+  ): void {
+    if (!this.auditColumns) return;
+    const columnName = this.auditColumns[kind];
+    if (!columnName) return;
 
-  async softDeleteByPk(pk: any) {
-    const primaryColumns = this.repository.metadata.primaryColumns.map(
-      (c) => c.propertyName,
+    const hasColumn = this.repository.metadata.columns.some(
+      (c) => c.propertyName === columnName,
     );
-    const where: any = {};
-    if (primaryColumns.length === 1) {
-      where[primaryColumns[0]] =
-        typeof pk === 'object' && pk !== null ? pk[primaryColumns[0]] : pk;
-    } else {
-      for (const col of primaryColumns) {
-        if (pk[col] === undefined) return { affected: 0 } as any;
-        where[col] = pk[col];
-      }
+    if (!hasColumn) return;
+
+    const userId = RequestContext.userId;
+    if (userId === undefined || userId === null) return;
+
+    const numeric = Number(userId);
+    payload[columnName] = Number.isFinite(numeric) ? numeric : userId;
+  }
+
+  private assertSoftDeleteSupport(): void {
+    if (!this.supportsSoftDelete()) {
+      throw new MethodNotAllowedException(
+        `La entidad ${this.repository.metadata.name} no soporta borrado lógico (falta @DeleteDateColumn)`,
+      );
     }
-    return this.repository.softDelete(where);
+  }
+
+  private buildPaginatedResponse(
+    data: T[],
+    total: number,
+    page: number,
+    perPage: number,
+  ): PaginatedResponse<T> {
+    const effectivePerPage = perPage > 0 ? perPage : total;
+    const lastPage =
+      effectivePerPage > 0 ? Math.ceil(total / effectivePerPage) || 1 : 1;
+    const skip = (page - 1) * effectivePerPage;
+    return {
+      data,
+      total,
+      currentPage: page,
+      lastPage,
+      perPage: effectivePerPage,
+      from: total > 0 ? skip + 1 : null,
+      to: total > 0 ? skip + data.length : null,
+    };
   }
 }

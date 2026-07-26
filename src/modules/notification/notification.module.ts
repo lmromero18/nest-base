@@ -1,14 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { DATABASE_CONNECTIONS } from '../../config/database/database.constants';
 import { Notification } from './notification.entity';
-import { NotificationService } from './notification.service';
 import { NotificationController } from './notification.controller';
 import { NotificationScheduler } from './notification.scheduler';
-import { getEnv } from 'src/common/utils/env';
+import { NotificationService } from './notification.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Notification], getEnv('NOTIFICATION_DB_NAME')),
+    TypeOrmModule.forFeature([Notification], DATABASE_CONNECTIONS.BASE),
   ],
   controllers: [NotificationController],
   providers: [NotificationService, NotificationScheduler],

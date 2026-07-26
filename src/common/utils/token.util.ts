@@ -1,4 +1,3 @@
-import type { FastifyRequest } from 'fastify';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 
 /**
@@ -20,7 +19,11 @@ export function extractBearerToken(authorizationHeader?: string): string {
 }
 
 /**
- * Decodifica el payload de un JWT sin verificar la firma.
+ * Decodifica el payload de un JWT SIN verificar la firma.
+ *
+ * ADVERTENCIA: solo para introspección/debug de tokens ya verificados.
+ * Nunca usar como mecanismo de autenticación: la verificación de firma
+ * vive en JwtAuthGuard.
  */
 export function decodeTokenPayload(token: string): JwtPayload {
   const [, encodedPayload] = token.split('.');
@@ -38,15 +41,6 @@ export function decodeTokenPayload(token: string): JwtPayload {
 }
 
 /**
- * Valida que el token JWT no haya expirado.
- */
-export function validateTokenExpiration(payload: JwtPayload): void {
-  if (payload.exp && payload.exp * 1000 < Date.now()) {
-    throw new Error('TOKEN_EXPIRED');
-  }
-}
-
-/**
  * Decodifica un string en base64url a Buffer.
  */
 export function decodeBase64Url(value: string): Buffer {
@@ -54,16 +48,4 @@ export function decodeBase64Url(value: string): Buffer {
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
 
   return Buffer.from(padded, 'base64');
-}
-
-/**
- * Extrae el token Bearer del request y devuelve el payload decodificado.
- * Valida expiración. Lanza Error con mensajes internos (TOKEN_MISSING, TOKEN_INVALID, TOKEN_EXPIRED).
- */
-export function extractAndDecodeToken(request: FastifyRequest): JwtPayload {
-  const authHeader = request.headers.authorization;
-  const token = extractBearerToken(authHeader);
-  const payload = decodeTokenPayload(token);
-  validateTokenExpiration(payload);
-  return payload;
 }

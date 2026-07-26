@@ -4,26 +4,35 @@ import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
-import { WinstonModule } from 'nest-winston';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from '@fastify/helmet';
+import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import * as pg from 'pg';
+import { version } from '../package.json';
 import { AppModule } from './app.module';
-import { winstonLoggerOptions } from './common/logger/winston-logger.config';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { getEnv } from './common/utils/env';
 
-// Configurar pg para parsear bigint (int8) y numeric a números de JS
+// bigint y numeric llegan como string desde pg; se parsean a number asumiendo
+// que no se manejan valores > 2^53 ni montos que requieran precisión decimal exacta
 pg.types.setTypeParser(20, (val: string) => parseInt(val, 10)); // OID 20: bigint
 pg.types.setTypeParser(1700, (val: string) => parseFloat(val)); // OID 1700: numeric
-
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter(),
     {
-      logger: WinstonModule.createLogger(winstonLoggerOptions),
+      bufferLogs: true,
     },
   );
+
+  // Instancia única de winston (la provee AppLoggerModule)
+  app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER));
+  app.flushLogs();
+
+  // Swagger UI usa scripts inline; con CSP activo no carga
+  await app.register(helmet, { contentSecurityPolicy: false });
 
   app.setGlobalPrefix('api');
 
@@ -32,7 +41,7 @@ async function bootstrap() {
     defaultVersion: '1',
   });
 
-  app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalFilters(new GlobalExceptionFilter());
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -42,10 +51,43 @@ async function bootstrap() {
     }),
   );
 
+  const corsOrigins = getEnv('CORS_ORIGINS')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: true,
+    // Sin CORS_ORIGINS: abierto en desarrollo, cerrado en producción
+    origin:
+      corsOrigins.length > 0
+        ? corsOrigins
+        : getEnv('NODE_ENV') !== 'production',
     credentials: true,
   });
+
+  app.enableShutdownHooks();
+
+  const swaggerEnabled =
+    getEnv(
+      'SWAGGER_ENABLED',
+      getEnv('NODE_ENV') === 'production' ? 'false' : 'true',
+    ) === 'true';
+
+  if (swaggerEnabled) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle(getEnv('APP_NAME', 'NEST-BASE'))
+      .setDescription(
+        'API basada en la librería CRUD genérica (BaseService + CrudControllerFactory). ' +
+          'Los listados aceptan filtros dinámicos: campo=valor, campo_like, campo_gte, ' +
+          'campo_lte, campo_between, campo_null, campo_not, relacion.campo, with, orderBy, or.',
+      )
+      .setVersion(version)
+      .addBearerAuth()
+      .build();
+
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('docs', app, document);
+  }
 
   const port = Number(getEnv('PORT', '3000'));
 
@@ -55,6 +97,16 @@ async function bootstrap() {
     `${getEnv('APP_NAME', 'Application')} running on http://localhost:${port}`,
     'Bootstrap',
   );
+
+  if (swaggerEnabled) {
+    Logger.log(`Swagger UI en http://localhost:${port}/docs`, 'Bootstrap');
+  }
 }
 
-bootstrap();
+bootstrap().catch((error: unknown) => {
+  Logger.error(
+    error instanceof Error ? (error.stack ?? error.message) : String(error),
+    'Bootstrap',
+  );
+  process.exit(1);
+});

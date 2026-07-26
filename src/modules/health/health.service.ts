@@ -7,7 +7,7 @@ export class HealthService {
   check() {
     return {
       status: 'OK',
-      service: getEnv('APP_NAME', 'CENSO-API'),
+      service: getEnv('APP_NAME', 'NEST-BASE'),
       version,
       environment: getEnv('NODE_ENV', 'local'),
       timestamp: new Date().toISOString(),

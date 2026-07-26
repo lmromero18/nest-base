@@ -1,0 +1,4 @@
+[test]
+# reflect-metadata debe cargarse antes que cualquier decorador de NestJS/TypeORM
+preload = ["./test/setup.ts"]
+coverageSkipTestFiles = true

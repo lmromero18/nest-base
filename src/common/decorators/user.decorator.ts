@@ -7,10 +7,7 @@ type RequestWithUser = FastifyRequest & {
 };
 
 export const User = createParamDecorator(
-  (
-    data: string | undefined,
-    ctx: ExecutionContext,
-  ): JwtPayload | unknown | undefined => {
+  (data: string | undefined, ctx: ExecutionContext): unknown => {
     const request = ctx.switchToHttp().getRequest<RequestWithUser>();
     const user = request.user;
 
