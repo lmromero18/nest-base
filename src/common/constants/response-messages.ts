@@ -4,7 +4,7 @@ export const RESPONSE_MESSAGES = {
       USERNAME_REQUIRED: 'El campo username es requerido',
       PASSWORD_REQUIRED: 'El campo password es requerido',
       CONFIG_MISSING:
-        'Falta configuracion de AUTH_API_URL, CENSO_CLIENT_ID o CENSO_CLIENT_SECRET',
+        'Falta configuracion de AUTH_API_URL, BASE_CLIENT_ID o BASE_CLIENT_SECRET',
       PROCESS_ERROR: 'Error durante el proceso de autenticacion',
     },
     TOKEN: {
@@ -25,9 +25,5 @@ export const RESPONSE_MESSAGES = {
     ACTUALIZAR_ERROR: 'Error al actualizar',
     ELIMINAR_ERROR: 'Error al eliminar',
     ELIMINADO_EXITO: 'Eliminado correctamente',
-  },
-  BRIGADISTA: {
-    CEDULA_DUPLICADA: 'Ya existe un brigadista con esa cédula de identidad',
-    CORREO_DUPLICADO: 'Ya existe un brigadista con ese correo electrónico',
-  },
+  }
 } as const;
