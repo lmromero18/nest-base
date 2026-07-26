@@ -1,49 +1,31 @@
-import {
-  MiddlewareConsumer,
-  Module,
-  NestModule,
-  RequestMethod,
-} from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { AuthModule } from './auth/auth.module';
-import { AuthGuard } from './auth/guards/auth.guard';
-import { LoggerModule } from './common/modules/logger.module';
-import { CryptoModule } from './crypto/crypto.module';
-import { appDataSourceOptions } from './database/data-source';
-import { BaseHttpModule } from './modules/base-http.module';
-import { DatabaseModule } from './modules/database.module';
-import { ClienteFilterMiddleware } from './common/middlewares/client-filter.middleware';
-import { ScheduleModule } from '@nestjs/schedule';
-import { NotificationModule } from './notification/notification.module';
-
-@Module({
+import { ConfigModule } from '@nestjs/config';
+import { AppLoggerModule } from './common/logger/app-logger.module';
+import { DatabaseModule } from './config/database/database.module';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { HealthModule } from './modules/health/health.module';
+import { LoginModule } from './modules/login/login.module';@Module({
   imports: [
-    CryptoModule,
-    DatabaseModule.forConnections(appDataSourceOptions),
-    BaseHttpModule,
-    LoggerModule,
-    ScheduleModule.forRoot(),
-    AuthModule,
-    NotificationModule,
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+
+    AppLoggerModule,
+
+    DatabaseModule,
+
+    HealthModule,
+
+    LoginModule,
+
+    // CampamentosModule, // TODO: create src/modules/campamentos/campamentos.module.ts
   ],
-  controllers: [],
   providers: [
     {
       provide: APP_GUARD,
-      useClass: AuthGuard,
+      useClass: JwtAuthGuard,
     },
-    ClienteFilterMiddleware,
   ],
-  exports: [],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(ClienteFilterMiddleware)
-      .exclude(
-        { path: 'auth/login', method: RequestMethod.POST },
-        { path: 'auth/refresh', method: RequestMethod.POST },
-      )
-      .forRoutes({ path: 'api/*path', method: RequestMethod.ALL });
-  }
-}
+export class AppModule {}
