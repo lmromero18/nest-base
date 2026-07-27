@@ -76,6 +76,16 @@ Localmente, `lint` y `format:check` son de solo lectura; usa `lint:fix` o
 
 ## La librería base
 
+### Framework boundaries
+
+The reusable surface is intentionally a TypeORM-aware persistence core
+(`BaseService` and query contracts), surrounded by transport/infrastructure
+adapters such as `CrudControllerFactory`, and application-owned modules and
+policy. See the [framework boundary contract](docs/framework-boundaries.md)
+for dependency rules, promotion criteria, preserved behavior, and non-goals.
+This phase changes documentation and static rules only; it does not move or
+change runtime code.
+
 ### Crear un CRUD estándar
 
 Para agregar un recurso CRUD, la estructura mínima recomendada es:
@@ -102,7 +112,11 @@ en el módulo raíz. La entidad también debe estar disponible para el
 ```ts
 @Injectable()
 export class PersonaService extends BaseService<Persona> {
-  protected override readonly filterable = ['nombre', 'estado', 'ciudad.nombre'];
+  protected override readonly filterable = [
+    'nombre',
+    'estado',
+    'ciudad.nombre',
+  ];
   protected override readonly sortable = ['id', 'nombre'];
   protected override readonly allowedRelations = ['ciudad'];
   protected override readonly maxPerPage = 100;
@@ -191,9 +205,7 @@ export class PersonaController extends CrudControllerFactory<Persona>({
   }
 
   @Post()
-  override async create(
-    @Body() data: CreatePersonaDto,
-  ): Promise<Persona> {
+  override async create(@Body() data: CreatePersonaDto): Promise<Persona> {
     return this.personaService.createFromRequest(data);
   }
 
@@ -218,9 +230,7 @@ La lógica específica queda en el service, no en el controller:
 export class PersonaService extends BaseService<Persona> {
   // Conserva aquí el constructor y las allowlists del ejemplo anterior.
 
-  async createFromRequest(
-    dto: CreatePersonaDto,
-  ): Promise<Persona> {
+  async createFromRequest(dto: CreatePersonaDto): Promise<Persona> {
     const payload = {
       ...dto,
       nombre: dto.nombre.trim(),
@@ -355,24 +365,32 @@ Rutas disponibles: `find` (GET /), `findOne` (GET /:id), `create` (POST), `updat
 GET /api/v1/personas?estado=ACTIVO&nombre_like=ana&page=2&perPage=50
 ```
 
-| Sintaxis | Significado |
-|---|---|
-| `campo=v` | igualdad (repetido → `IN`) |
-| `campo_like=v` | `ILIKE %v%` (castea no-texto) |
-| `campo_gte=v` / `campo_lte=v` | `>=` / `<=` |
-| `campo_between=a,b` | rango (malformado → 400) |
-| `campo_null=true\|false` | `IS NULL` / `IS NOT NULL` |
-| `campo_not=a,b` | `NOT IN` |
-| `relacion.campo=v` | filtro sobre relación (ruta completa validada) |
-| `with=rel,rel.sub` | carga relaciones permitidas |
-| `orderBy=campo:DESC,otro` | ordenamiento (allowlist) |
-| `or=[{"a":1},{"b":2}]` | bloques OR (solo igualdad) combinados con el AND base |
-| `page` / `perPage` | paginación; `perPage` tiene tope (`maxPerPage`); `perPage=0` solo si el service define `allowUnpaginated` |
+| Sintaxis                      | Significado                                                                                               |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `campo=v`                     | igualdad (repetido → `IN`)                                                                                |
+| `campo_like=v`                | `ILIKE %v%` (castea no-texto)                                                                             |
+| `campo_gte=v` / `campo_lte=v` | `>=` / `<=`                                                                                               |
+| `campo_between=a,b`           | rango (malformado → 400)                                                                                  |
+| `campo_null=true\|false`      | `IS NULL` / `IS NOT NULL`                                                                                 |
+| `campo_not=a,b`               | `NOT IN`                                                                                                  |
+| `relacion.campo=v`            | filtro sobre relación (ruta completa validada)                                                            |
+| `with=rel,rel.sub`            | carga relaciones permitidas                                                                               |
+| `orderBy=campo:DESC,otro`     | ordenamiento (allowlist)                                                                                  |
+| `or=[{"a":1},{"b":2}]`        | bloques OR (solo igualdad) combinados con el AND base                                                     |
+| `page` / `perPage`            | paginación; `perPage` tiene tope (`maxPerPage`); `perPage=0` solo si el service define `allowUnpaginated` |
 
 Todo campo/relación fuera de la allowlist se ignora en silencio. La respuesta de listado es:
 
 ```json
-{ "data": [], "total": 0, "currentPage": 1, "lastPage": 1, "perPage": 20, "from": null, "to": null }
+{
+  "data": [],
+  "total": 0,
+  "currentPage": 1,
+  "lastPage": 1,
+  "perPage": 20,
+  "from": null,
+  "to": null
+}
 ```
 
 ### Escrituras seguras
