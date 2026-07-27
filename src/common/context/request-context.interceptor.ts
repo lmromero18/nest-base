@@ -6,8 +6,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { Observable } from 'rxjs';
-import type { JwtPayload } from '../interfaces/jwt-payload.interface';
-import type { Principal } from '../application/principal';
+import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { RequestContext, RequestContextStore } from './request-context';
 
 type RequestWithUser = FastifyRequest & {
@@ -28,7 +27,7 @@ export class RequestContextInterceptor implements NestInterceptor {
 
     const request = context.switchToHttp().getRequest<RequestWithUser>();
     const store: RequestContextStore = {
-      principal: principalFromJwtPayload(request.user),
+      user: request.user,
       requestId: request.id,
     };
 
@@ -41,23 +40,4 @@ export class RequestContextInterceptor implements NestInterceptor {
       return () => subscription.unsubscribe();
     });
   }
-}
-
-export function principalFromJwtPayload(
-  payload: JwtPayload | undefined,
-): Principal | undefined {
-  const subject = payload?.sub;
-  const hasValidSubject =
-    (typeof subject === 'string' && subject.trim().length > 0) ||
-    (typeof subject === 'number' && Number.isFinite(subject));
-
-  if (!hasValidSubject) {
-    return undefined;
-  }
-
-  const clientId = payload?.aud;
-  return {
-    subject,
-    ...(typeof clientId === 'string' && clientId ? { clientId } : {}),
-  };
 }

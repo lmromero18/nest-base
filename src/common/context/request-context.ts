@@ -1,13 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Principal } from '../application/principal';
+import { JwtPayload } from '../interfaces/jwt-payload.interface';
 
 export interface RequestContextStore {
-  principal?: Principal;
-  /** @deprecated Use principal; retained for callers that seed the context directly. */
-  user?: {
-    sub?: string | number;
-    aud?: string;
-  };
+  user?: JwtPayload;
   requestId?: string;
 }
 
@@ -29,19 +24,17 @@ export class RequestContext {
     return storage.getStore();
   }
 
-  static get principal(): Principal | undefined {
-    return storage.getStore()?.principal;
+  static get user(): JwtPayload | undefined {
+    return storage.getStore()?.user;
   }
 
   /** Identificador del usuario autenticado (claim `sub`), si existe. */
   static get userId(): string | number | undefined {
-    const store = storage.getStore();
-    return store?.principal?.subject ?? store?.user?.sub;
+    return storage.getStore()?.user?.sub;
   }
 
   /** Identificador del cliente/audiencia (claim `aud`), si existe. */
   static get clientId(): string | undefined {
-    const store = storage.getStore();
-    return store?.principal?.clientId ?? store?.user?.aud;
+    return storage.getStore()?.user?.aud;
   }
 }

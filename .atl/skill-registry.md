@@ -9,20 +9,6 @@ Last updated: 2026-07-27
 - C:\Users\luisr\.config\opencode\skills
 - C:\Users\luisr\.gemini\skills
 - C:\Users\luisr\.copilot\skills
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.opencode\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.claude\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.gemini\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.cursor\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.github\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.codex\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.qwen\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.kiro\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.openclaw\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.pi\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.agent\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.agents\skills (not present)
-- C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\.atl\skills (not present)
 
 ## Contract
 
@@ -44,12 +30,6 @@ Last updated: 2026-07-27
 | `skill-creator` | Trigger: new skills, agent instructions, documenting AI usage patterns. Create LLM-first skills with valid frontmatter. | user | `C:\Users\luisr\.config\opencode\skills\skill-creator\SKILL.md` |
 | `skill-improver` | Trigger: improve skills, audit skills, refactor skills, skill quality. Audit and upgrade existing LLM-first skills. | user | `C:\Users\luisr\.config\opencode\skills\skill-improver\SKILL.md` |
 | `work-unit-commits` | Plan commits as reviewable work units. Trigger: implementation, commit splitting, chained PRs, or keeping tests and docs with code. | user | `C:\Users\luisr\.config\opencode\skills\work-unit-commits\SKILL.md` |
-
-## Project conventions
-
-| Source | Scope | Path |
-| --- | --- | --- |
-| Project agent instructions | NestJS/Bun/TypeScript stack, module structure, TypeORM, testing, naming, and SDD conventions | `C:\Users\luisr\OneDrive\Documentos\Proyectos\nest-base\AGENTS.md` |
 
 ## Loading protocol
 
