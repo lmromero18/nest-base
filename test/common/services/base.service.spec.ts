@@ -226,7 +226,7 @@ describe('BaseService — find', () => {
     await service.find({ perPage: '5000' });
 
     const opts = calls.findAndCount[0][0] as Record<string, unknown>;
-    expect(opts.take).toBe(100);
+    expect(opts.take).toBe(500);
     expect(opts.skip).toBe(0);
   });
 
