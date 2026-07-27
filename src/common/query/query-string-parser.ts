@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import {
   Between,
   In,
@@ -7,7 +8,6 @@ import {
   Not,
   Raw,
 } from 'typeorm';
-import { ApplicationException } from '../application/application-error';
 
 /**
  * Contrato de query-string soportado por la librería base:
@@ -182,9 +182,7 @@ export class QueryStringParser {
           .split(',')
           .map((s) => s.trim());
         if (parts.length !== 2 || parts.some((p) => p === '')) {
-          throw new ApplicationException(
-            'validation',
-            'invalid-between-filter',
+          throw new BadRequestException(
             `El filtro ${rawKey} requiere exactamente dos valores separados por coma`,
           );
         }
@@ -276,16 +274,12 @@ export class QueryStringParser {
       try {
         parsed = JSON.parse(trimmed);
       } catch {
-        throw new ApplicationException(
-          'validation',
-          'invalid-or-json',
+        throw new BadRequestException(
           'El parámetro "or" contiene JSON inválido',
         );
       }
       if (!Array.isArray(parsed)) {
-        throw new ApplicationException(
-          'validation',
-          'invalid-or-shape',
+        throw new BadRequestException(
           'El parámetro "or" debe ser un array de objetos',
         );
       }
