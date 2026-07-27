@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { EntityNotFoundError, QueryFailedError } from 'typeorm';
+import { ApplicationException } from '../application/application-error';
 import { getEnv } from '../utils/env';
 
 interface ErrorResponseBody {
@@ -61,6 +62,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   }
 
   private buildBody(exception: unknown): ErrorResponseBody {
+    if (exception instanceof ApplicationException) {
+      return this.mapApplicationError(exception);
+    }
+
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const res = exception.getResponse();
@@ -90,6 +95,38 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       message: isProduction() ? 'Error interno del servidor' : message,
       error: 'Internal Server Error',
+    };
+  }
+
+  private mapApplicationError(
+    exception: ApplicationException,
+  ): ErrorResponseBody {
+    const mapping: Record<
+      ApplicationException['category'],
+      { statusCode: number; error: string }
+    > = {
+      validation: { statusCode: HttpStatus.BAD_REQUEST, error: 'Bad Request' },
+      'not-found': { statusCode: HttpStatus.NOT_FOUND, error: 'Not Found' },
+      conflict: { statusCode: HttpStatus.CONFLICT, error: 'Conflict' },
+      unsupported: {
+        statusCode: HttpStatus.METHOD_NOT_ALLOWED,
+        error: 'Method Not Allowed',
+      },
+    };
+    const mapped = mapping[exception.category];
+    if (!mapped) {
+      return {
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: isProduction()
+          ? 'Error interno del servidor'
+          : exception.message,
+        error: 'Internal Server Error',
+      };
+    }
+    return {
+      statusCode: mapped.statusCode,
+      message: exception.message,
+      error: mapped.error,
     };
   }
 

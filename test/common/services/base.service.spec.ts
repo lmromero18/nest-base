@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { MethodNotAllowedException } from '@nestjs/common';
 import type { Repository } from 'typeorm';
 import { RequestContext } from '../../../src/common/context/request-context';
+import { ApplicationException } from '../../../src/common/application/application-error';
 import { BaseService } from '../../../src/common/services/base.service';
 
 interface Demo {
@@ -149,6 +149,31 @@ describe('BaseService — create', () => {
     expect(payload.idCreado).toBe(7);
   });
 
+  it('estampa idCreado desde el principal neutral', async () => {
+    const { service, calls } = makeService();
+    await RequestContext.run({ principal: { subject: '11' } }, () =>
+      service.create({ nombre: 'x' }),
+    );
+
+    const payload = calls.create[0][0] as Record<string, unknown>;
+    expect(payload.idCreado).toBe(11);
+  });
+
+  it('usa el repositorio del manager transaccional para crear', async () => {
+    const { service, calls } = makeService();
+    const manager = {
+      getRepository: () => service['repository'],
+    };
+
+    await service.create(
+      { nombre: 'transaccional' },
+      { manager: manager as never },
+    );
+
+    expect(calls.create[0][0]).toEqual({ nombre: 'transaccional' });
+    expect(calls.save).toHaveLength(1);
+  });
+
   it('sin contexto de request no estampa auditoría', async () => {
     const { service, calls } = makeService();
     await service.create({ nombre: 'x' });
@@ -192,7 +217,7 @@ describe('BaseService — borrado lógico', () => {
     } catch (e) {
       error = e;
     }
-    expect(error).toBeInstanceOf(MethodNotAllowedException);
+    expect(error).toBeInstanceOf(ApplicationException);
   });
 
   it('softDelete por PK con coerción de tipo', async () => {
@@ -216,7 +241,7 @@ describe('BaseService — borrado lógico', () => {
     } catch (e) {
       error = e;
     }
-    expect(error).toBeInstanceOf(MethodNotAllowedException);
+    expect(error).toBeInstanceOf(ApplicationException);
   });
 });
 
@@ -236,6 +261,18 @@ describe('BaseService — find', () => {
 
     const opts = calls.findAndCount[0][0] as Record<string, unknown>;
     expect(opts.where).toEqual({ nombre: 'ana' });
+  });
+
+  it('propaga un error neutral de validación para un filtro malformado', async () => {
+    const { service } = makeService();
+
+    let error: unknown;
+    try {
+      await service.find({ nombre_between: 'ana' });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(ApplicationException);
   });
 
   it('calcula skip según la página', async () => {
