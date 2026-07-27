@@ -61,7 +61,7 @@ export abstract class BaseService<T extends ObjectLiteral> {
   /** Relaciones expuestas (rutas con punto para anidadas). undefined = todas. */
   protected readonly allowedRelations?: string[];
   protected readonly defaultPerPage: number = 20;
-  protected readonly maxPerPage: number = 100;
+  protected readonly maxPerPage: number = 500;
   /** Permite perPage=0 (traer todo). Por defecto se degrada a maxPerPage. */
   protected readonly allowUnpaginated: boolean = true;
   /**
