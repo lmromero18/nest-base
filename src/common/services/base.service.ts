@@ -1,6 +1,5 @@
 import {
   DeepPartial,
-  EntityManager,
   EntityMetadata,
   FindManyOptions,
   FindOneOptions,
@@ -11,6 +10,10 @@ import {
 } from 'typeorm';
 import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata';
 import { ApplicationException } from '../application/application-error';
+import type {
+  MutationOptions,
+  PaginatedResponse,
+} from '../application/crud.contracts';
 import { RequestContext } from '../context/request-context';
 import {
   ParsedListQuery,
@@ -18,20 +21,10 @@ import {
   QueryStringParser,
 } from '../query/query-string-parser';
 
-export interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  currentPage: number;
-  lastPage: number;
-  perPage: number;
-  from: number | null;
-  to: number | null;
-}
-
-export interface MutationOptions {
-  /** EntityManager transaccional (dataSource.transaction(async (manager) => ...)). */
-  manager?: EntityManager;
-}
+export type {
+  MutationOptions,
+  PaginatedResponse,
+} from '../application/crud.contracts';
 
 type ListFindOptions<T extends ObjectLiteral> = Omit<
   FindManyOptions<T>,
@@ -221,7 +214,9 @@ export abstract class BaseService<T extends ObjectLiteral> {
     data: DeepPartial<T>,
     options?: MutationOptions,
   ): Promise<T | null> {
-    const entity = await this.findOneBy(column, value);
+    const entity = await this.repo(options).findOne({
+      where: { [column as string]: value } as FindOptionsWhere<T>,
+    });
     if (!entity) return null;
     return this.updateByPk(entity, data, options);
   }
@@ -242,7 +237,9 @@ export abstract class BaseService<T extends ObjectLiteral> {
     value: T[K],
     options?: MutationOptions,
   ): Promise<boolean> {
-    const entity = await this.findOneBy(column, value);
+    const entity = await this.repo(options).findOne({
+      where: { [column as string]: value } as FindOptionsWhere<T>,
+    });
     if (!entity) return false;
     return this.removeByPk(entity, options);
   }

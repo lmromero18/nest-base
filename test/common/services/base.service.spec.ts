@@ -208,6 +208,84 @@ describe('BaseService — updateByPk', () => {
   });
 });
 
+describe('BaseService — unique-column mutations', () => {
+  it('reads the entity from the supplied manager before updating', async () => {
+    const { service, calls } = makeService({
+      preloadResult: { id: 8, nombre: 'updated' },
+    });
+    const managerCalls: unknown[][] = [];
+    const managerRepository = {
+      ...service['repository'],
+      findOne: (options: unknown) => {
+        managerCalls.push([options]);
+        return Promise.resolve({ id: 8, nombre: 'before' });
+      },
+    };
+    const manager = {
+      getRepository: () => managerRepository,
+    };
+
+    const result = await service.updateByUniqueColumn(
+      'nombre',
+      'before',
+      { nombre: 'updated' },
+      { manager: manager as never },
+    );
+
+    expect(result).toEqual({ id: 8, nombre: 'updated' } as Demo);
+    expect(managerCalls[0][0]).toEqual({ where: { nombre: 'before' } });
+    expect(calls.preload[0][0]).toEqual({ id: 8, nombre: 'updated' });
+  });
+
+  it('keeps unique-column removal inside the manager transaction boundary', async () => {
+    const { service } = makeService();
+    const state = { removed: false };
+    const managerRepository = {
+      ...service['repository'],
+      findOne: () => Promise.resolve({ id: 9, nombre: 'transactional' }),
+      delete: () => {
+        state.removed = true;
+        return Promise.resolve({ affected: 1 });
+      },
+    };
+    const manager = {
+      getRepository: () => managerRepository,
+    };
+
+    const runTransaction = async (work: () => Promise<void>): Promise<void> => {
+      const before = state.removed;
+      try {
+        await work();
+      } catch (error) {
+        state.removed = before;
+        throw error;
+      }
+    };
+
+    await runTransaction(async () => {
+      await service.removeByUniqueColumn('nombre', 'transactional', {
+        manager: manager as never,
+      });
+    });
+    expect(state.removed).toBe(true);
+
+    state.removed = false;
+    let rollbackError: unknown;
+    try {
+      await runTransaction(async () => {
+        await service.removeByUniqueColumn('nombre', 'transactional', {
+          manager: manager as never,
+        });
+        throw new Error('rollback');
+      });
+    } catch (error) {
+      rollbackError = error;
+    }
+    expect((rollbackError as Error).message).toBe('rollback');
+    expect(state.removed).toBe(false);
+  });
+});
+
 describe('BaseService — borrado lógico', () => {
   it('lanza 405 si la entidad no tiene @DeleteDateColumn', async () => {
     const { service } = makeService({ withDeleteDate: false });

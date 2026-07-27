@@ -103,6 +103,16 @@ describe('QueryStringParser — filtros', () => {
     expect(op.type).toBe('raw');
   });
 
+  it('_like conserva el término con comodines para el contrato PostgreSQL', () => {
+    const parsed = parser.parse({ nombre_like: 'ana' });
+    const op = operator((parsed.where as Record<string, unknown>).nombre);
+
+    expect(op.getSql!('person.nombre')).toContain(
+      'CAST(person.nombre AS varchar) ILIKE :qsp_0',
+    );
+    expect(op.objectLiteralParameters).toEqual({ qsp_0: '%ana%' });
+  });
+
   it('dos _like en la misma query usan parámetros distintos (sin colisión)', () => {
     const parsed = parser.parse({ nombre_like: 'ana', estado_like: 'act' });
     const where = parsed.where as Record<string, unknown>;
