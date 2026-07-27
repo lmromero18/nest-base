@@ -47,17 +47,17 @@ export function principalFromJwtPayload(
   payload: JwtPayload | undefined,
 ): Principal | undefined {
   const subject = payload?.sub;
-  if (
-    subject === undefined ||
-    subject === null ||
-    (typeof subject === 'string' && subject.trim().length === 0)
-  ) {
+  const hasValidSubject =
+    (typeof subject === 'string' && subject.trim().length > 0) ||
+    (typeof subject === 'number' && Number.isFinite(subject));
+
+  if (!hasValidSubject) {
     return undefined;
   }
 
   const clientId = payload?.aud;
   return {
     subject,
-    ...(clientId ? { clientId } : {}),
+    ...(typeof clientId === 'string' && clientId ? { clientId } : {}),
   };
 }

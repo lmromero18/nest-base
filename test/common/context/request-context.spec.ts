@@ -73,6 +73,34 @@ describe('principalFromJwtPayload', () => {
     ).toBeUndefined();
     expect(principalFromJwtPayload({ aud: 'client-a' })).toBeUndefined();
   });
+
+  it('rejects runtime-malformed subject claims', () => {
+    expect(
+      principalFromJwtPayload({ sub: true } as unknown as JwtPayload),
+    ).toBeUndefined();
+    expect(
+      principalFromJwtPayload({ sub: {} } as unknown as JwtPayload),
+    ).toBeUndefined();
+    expect(principalFromJwtPayload({ sub: Number.NaN })).toBeUndefined();
+    expect(
+      principalFromJwtPayload({ sub: Number.POSITIVE_INFINITY }),
+    ).toBeUndefined();
+  });
+
+  it('preserves finite numeric subjects and omits runtime-malformed audiences', () => {
+    expect(
+      principalFromJwtPayload({
+        sub: 42,
+        aud: ['client-a'],
+      } as unknown as JwtPayload),
+    ).toEqual({ subject: 42 });
+    expect(
+      principalFromJwtPayload({
+        sub: 43,
+        aud: { value: 'client-b' },
+      } as unknown as JwtPayload),
+    ).toEqual({ subject: 43 });
+  });
 });
 
 describe('RequestContextInterceptor', () => {
