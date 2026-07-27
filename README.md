@@ -31,6 +31,24 @@ bun run start:dev
 
 Variables clave: `JWT_PUBLIC_KEY` (o `JWT_SECRET`) es **obligatoria** para que las rutas protegidas verifiquen la firma de los tokens — sin ella la app responde 503 en rutas privadas (y en producción no arranca). `CORS_ORIGINS` restringe orígenes en producción.
 
+### Pool de conexiones a PostgreSQL
+
+`DB_BASE_POOL_MAX` define el máximo de conexiones simultáneas que puede abrir **cada instancia** de la API contra PostgreSQL:
+
+```env
+DB_BASE_POOL_MAX=10
+```
+
+Una instancia es cada proceso, contenedor, pod o worker independiente de NestJS. Por ejemplo, 3 instancias con un pool de 10 pueden abrir hasta 30 conexiones en total.
+
+El valor debe considerar todas las instancias desplegadas:
+
+```text
+pool por instancia <= (max_connections de PostgreSQL - conexiones reservadas) / cantidad de instancias
+```
+
+Como punto de partida, `5–10` conexiones suele ser suficiente para proyectos pequeños. No conviene aumentar el valor sin medir: un pool demasiado grande puede agotar las conexiones disponibles de PostgreSQL y empeorar el rendimiento.
+
 ## Scripts
 
 ```bash
