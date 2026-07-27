@@ -63,7 +63,7 @@ export abstract class BaseService<T extends ObjectLiteral> {
   protected readonly defaultPerPage: number = 20;
   protected readonly maxPerPage: number = 100;
   /** Permite perPage=0 (traer todo). Por defecto se degrada a maxPerPage. */
-  protected readonly allowUnpaginated: boolean = false;
+  protected readonly allowUnpaginated: boolean = true;
   /**
    * Columnas de auditoría estampadas automáticamente (si existen en la entidad)
    * con el usuario del RequestContext. Sobrescribir con null para desactivar.
