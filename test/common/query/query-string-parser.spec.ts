@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { BadRequestException } from '@nestjs/common';
 import { FindOperator } from 'typeorm';
+import { ApplicationException } from '../../../src/common/application/application-error';
 import {
   QuerySchema,
   QueryStringParser,
@@ -121,12 +121,18 @@ describe('QueryStringParser — filtros', () => {
     expect(op.type).toBe('between');
   });
 
-  it('_between malformado responde 400', () => {
-    expect(() => parser.parse({ monto_between: '10' })).toThrow(
-      BadRequestException,
-    );
+  it('_between malformado responde con error neutral de validación', () => {
+    let error: unknown;
+    try {
+      parser.parse({ monto_between: '10' });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(ApplicationException);
+    expect((error as ApplicationException).category).toBe('validation');
+    expect((error as ApplicationException).code).toBe('invalid-between-filter');
     expect(() => parser.parse({ monto_between: '10,,' })).toThrow(
-      BadRequestException,
+      ApplicationException,
     );
   });
 
@@ -211,7 +217,7 @@ describe('QueryStringParser — orden y OR', () => {
 
   it('or con JSON inválido responde 400', () => {
     expect(() => parser.parse({ or: '[{estado:' })).toThrow(
-      BadRequestException,
+      ApplicationException,
     );
   });
 

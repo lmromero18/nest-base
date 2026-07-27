@@ -1,4 +1,3 @@
-import { MethodNotAllowedException } from '@nestjs/common';
 import {
   DeepPartial,
   EntityManager,
@@ -11,6 +10,7 @@ import {
   Repository,
 } from 'typeorm';
 import { ColumnMetadata } from 'typeorm/metadata/ColumnMetadata';
+import { ApplicationException } from '../application/application-error';
 import { RequestContext } from '../context/request-context';
 import {
   ParsedListQuery,
@@ -436,7 +436,7 @@ export abstract class BaseService<T extends ObjectLiteral> {
     );
     if (!hasColumn) return;
 
-    const userId = RequestContext.userId;
+    const userId = RequestContext.principal?.subject ?? RequestContext.userId;
     if (userId === undefined || userId === null) return;
 
     const numeric = Number(userId);
@@ -445,7 +445,9 @@ export abstract class BaseService<T extends ObjectLiteral> {
 
   private assertSoftDeleteSupport(): void {
     if (!this.supportsSoftDelete()) {
-      throw new MethodNotAllowedException(
+      throw new ApplicationException(
+        'unsupported',
+        'soft-delete-not-supported',
         `La entidad ${this.repository.metadata.name} no soporta borrado lógico (falta @DeleteDateColumn)`,
       );
     }
