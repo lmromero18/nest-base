@@ -32,6 +32,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Check for focused tests
+        run: bun run test:focused:check
+
       - name: Test
         run: bun test
 
