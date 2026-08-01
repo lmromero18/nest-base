@@ -1,0 +1,43 @@
+{
+  "name": "@nest-base/http-core",
+  "version": "0.1.0",
+  "description": "NestJS HTTP adapter for nest-base CRUD controllers",
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/index.d.ts",
+  "sideEffects": false,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20 <25",
+    "bun": ">=1.3.14"
+  },
+  "files": [
+    "README.md",
+    "LICENSE",
+    "dist"
+  ],
+  "peerDependencies": {
+    "@nest-base/core": ">=0.1.0 <0.2.0",
+    "@nestjs/common": ">=11.0.0 <12.0.0",
+    "@nestjs/swagger": ">=11.0.0 <12.0.0",
+    "typeorm": ">=0.3.28 <0.4.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js",
+      "default": "./dist/esm/index.js"
+    }
+  },
+  "scripts": {
+    "prepack": "bun run build",
+    "typecheck": "tsc --noEmit -p tsconfig.types.json",
+    "test": "bun test ../../test/packages/http-core",
+    "build": "bun run ../../packages/http-core/build.ts",
+    "audit": "bun run ../../packages/http-core/audit.ts",
+    "audit:tarball": "bun run ../../packages/http-core/audit-tarball.ts",
+    "verify:consumer": "bun run ../../packages/http-core/verify-consumer.ts"
+  }
+}

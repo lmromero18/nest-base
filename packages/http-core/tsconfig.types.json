@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@nest-base/core": ["node_modules/@nest-base/core/dist/types/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}
