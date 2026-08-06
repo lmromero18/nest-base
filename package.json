@@ -29,7 +29,8 @@
     "migration:run": "bun node_modules/typeorm/cli.js -d src/config/database/data-source.ts migration:run",
     "migration:revert": "bun node_modules/typeorm/cli.js -d src/config/database/data-source.ts migration:revert",
     "migration:show": "bun node_modules/typeorm/cli.js -d src/config/database/data-source.ts migration:show",
-    "migration:generate": "bun node_modules/typeorm/cli.js -d src/config/database/data-source.ts migration:generate"
+    "migration:generate": "bun node_modules/typeorm/cli.js -d src/config/database/data-source.ts migration:generate",
+    "module:generate": "bun tools/module-generator/cli.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
