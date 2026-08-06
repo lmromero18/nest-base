@@ -22,6 +22,11 @@ const sourceRoot = resolve(
   process.env.NEST_BASE_CORE_SOURCE_ROOT ??
     resolve(repositoryRoot, 'src/common'),
 );
+if (
+  process.env.NEST_BASE_CORE_PACKAGE_ROOT &&
+  isPathWithinOrEqual(packageRoot, resolve(import.meta.dir, '../..'))
+)
+  throw new Error('Explicit core package root cannot be the repository root');
 const distRoot = resolve(packageRoot, 'dist');
 const promotionBackupRoot = resolve(packageRoot, '.dist-backup');
 const { buildId: promotionBuildId, runRoot } = getCoreRunContext();
@@ -31,6 +36,32 @@ const compiler = resolve(
   process.env.NEST_BASE_REPOSITORY_ROOT ?? repositoryRoot,
   'node_modules/typescript/bin/tsc',
 );
+
+export type PromotionFs = {
+  exists(path: string): boolean;
+  rename(source: string, target: string): void;
+  remove(path: string): void;
+  wait(milliseconds: number): void;
+};
+
+export type RetryPolicy = {
+  maxAttempts: number;
+  delaysMs: readonly number[];
+};
+
+const promotionFs: PromotionFs = {
+  exists: existsSync,
+  rename: renameSync,
+  remove: (path) => rmSync(path, { recursive: true, force: true }),
+  wait: (milliseconds) => {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+  },
+};
+
+const promotionRetryPolicy: RetryPolicy = {
+  maxAttempts: 3,
+  delaysMs: [10, 20],
+};
 
 const entrypoints = [
   ['', 'index'],
@@ -57,6 +88,21 @@ function run(command: string[]): void {
   });
   if (result.exitCode !== 0)
     throw new Error(`Build command failed: ${command.join(' ')}`);
+}
+
+function isPathWithinOrEqual(candidate: string, parent: string): boolean {
+  const candidatePath = resolve(candidate);
+  const parentPath = resolve(parent);
+  const normalizedCandidate =
+    process.platform === 'win32' ? candidatePath.toLowerCase() : candidatePath;
+  const normalizedParent =
+    process.platform === 'win32' ? parentPath.toLowerCase() : parentPath;
+  return (
+    normalizedCandidate === normalizedParent ||
+    normalizedCandidate.startsWith(
+      `${normalizedParent}${process.platform === 'win32' ? '\\' : '/'}`,
+    )
+  );
 }
 
 function runCompiler(project: string): void {
@@ -217,35 +263,119 @@ function buildRuntime(format: 'esm' | 'cjs'): void {
   runCompiler(resolve(temporaryRoot, `tsconfig.${format}.json`));
 }
 
+export function retryPromotionRename(
+  fs: PromotionFs,
+  source: string,
+  target: string,
+  policy: RetryPolicy = promotionRetryPolicy,
+): void {
+  retryPromotionOperation(
+    fs,
+    `rename ${source} -> ${target}`,
+    () => fs.rename(source, target),
+    policy,
+  );
+}
+
+export function retryPromotionRemove(
+  fs: PromotionFs,
+  path: string,
+  policy: RetryPolicy = promotionRetryPolicy,
+): void {
+  retryPromotionOperation(fs, `remove ${path}`, () => fs.remove(path), policy);
+}
+
+function retryPromotionOperation(
+  fs: PromotionFs,
+  operation: string,
+  action: () => void,
+  policy: RetryPolicy,
+): void {
+  const maxAttempts = Math.max(1, policy.maxAttempts);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      action();
+      return;
+    } catch (error) {
+      const code = readErrorCode(error);
+      if (code !== 'EPERM' || attempt === maxAttempts)
+        throw new Error(
+          `Promotion filesystem operation failed: ${operation}; attempts=${attempt}; budget=${maxAttempts}; code=${code}`,
+          { cause: error },
+        );
+      fs.wait(policy.delaysMs[attempt - 1] ?? 0);
+    }
+  }
+}
+
+function readErrorCode(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'code' in error)
+    return String(error.code);
+  return 'unknown';
+}
+
 function promoteBuild(): void {
   const artifactRoot = resolve(temporaryRoot, 'artifact-dist');
-  recoverInterruptedPromotion();
-  if (existsSync(promotionBackupRoot))
-    rmSync(promotionBackupRoot, { recursive: true, force: true });
-  if (existsSync(distRoot)) renameSync(distRoot, promotionBackupRoot);
+  promoteBuildArtifacts(
+    promotionFs,
+    artifactRoot,
+    distRoot,
+    promotionBackupRoot,
+    promotionRetryPolicy,
+  );
+}
+
+function recoverInterruptedPromotion(): void {
+  recoverPromotionState(
+    promotionFs,
+    distRoot,
+    promotionBackupRoot,
+    promotionRetryPolicy,
+  );
+}
+
+export function promoteBuildArtifacts(
+  fs: PromotionFs,
+  artifactRoot: string,
+  distRoot: string,
+  backupRoot: string,
+  policy: RetryPolicy = promotionRetryPolicy,
+): void {
+  recoverPromotionState(fs, distRoot, backupRoot, policy);
   try {
-    renameSync(artifactRoot, distRoot);
-    rmSync(promotionBackupRoot, { recursive: true, force: true });
+    if (fs.exists(distRoot))
+      retryPromotionRename(fs, distRoot, backupRoot, policy);
+    retryPromotionRename(fs, artifactRoot, distRoot, policy);
+    retryPromotionRemove(fs, backupRoot, policy);
   } catch (error) {
-    restorePreviousDist();
+    restorePreviousDist(fs, distRoot, backupRoot, policy);
     throw error;
   }
 }
 
-function recoverInterruptedPromotion(): void {
-  if (existsSync(distRoot)) {
-    if (existsSync(promotionBackupRoot))
-      rmSync(promotionBackupRoot, { recursive: true, force: true });
+export function recoverPromotionState(
+  fs: PromotionFs,
+  distRoot: string,
+  backupRoot: string,
+  policy: RetryPolicy = promotionRetryPolicy,
+): void {
+  if (fs.exists(distRoot)) {
+    if (fs.exists(backupRoot)) retryPromotionRemove(fs, backupRoot, policy);
     return;
   }
-  if (existsSync(promotionBackupRoot))
-    renameSync(promotionBackupRoot, distRoot);
+  if (fs.exists(backupRoot))
+    retryPromotionRename(fs, backupRoot, distRoot, policy);
 }
 
-function restorePreviousDist(): void {
-  if (!existsSync(promotionBackupRoot)) return;
-  if (existsSync(distRoot)) rmSync(distRoot, { recursive: true, force: true });
-  renameSync(promotionBackupRoot, distRoot);
+function restorePreviousDist(
+  fs: PromotionFs,
+  distRoot: string,
+  backupRoot: string,
+  policy: RetryPolicy,
+): void {
+  if (!fs.exists(backupRoot)) return;
+  if (fs.exists(distRoot)) retryPromotionRemove(fs, distRoot, policy);
+  retryPromotionRename(fs, backupRoot, distRoot, policy);
 }
 
 function main(): void {
@@ -265,11 +395,13 @@ function main(): void {
   console.log('build:core passed');
 }
 
-withCoreOutputLock(() => {
-  try {
-    main();
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
-    if (!preserveRunRoot) rmSync(runRoot, { recursive: true, force: true });
-  }
-});
+if (import.meta.main) {
+  withCoreOutputLock(() => {
+    try {
+      main();
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+      if (!preserveRunRoot) rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+}
