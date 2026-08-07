@@ -8,7 +8,7 @@ import type {
 
 export const REGISTRY_REVISION = '2026-07-27';
 export const DEFAULT_WIZARD_VERSION = '0.1.0';
-const DEFAULT_CORE_VERSION = '1.0.0';
+const DEFAULT_CORE_VERSION = '0.1.0';
 const DEFAULT_LOGGER_VERSION = '1.0.0';
 
 const futureReason =

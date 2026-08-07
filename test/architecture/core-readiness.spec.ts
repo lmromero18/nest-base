@@ -65,6 +65,7 @@ describe('baseline-relative readiness classifier', () => {
   it('reports contradictory membership without assigning multiple categories', () => {
     const report = classifyReadinessPaths(['bun.lock'], {
       accepted: ['bun.lock'],
+      deferred: ['bun.lock'],
     });
 
     expect(report.diagnostics).toHaveLength(1);
@@ -75,6 +76,20 @@ describe('baseline-relative readiness classifier', () => {
     expect(report.diagnostics[0].reason).toContain('Contradictory');
     expect(report.byCategory.deferred).toEqual([]);
     expect(report.byCategory.forbidden).toEqual(['bun.lock']);
+    expect(report.promotion).toBe('blocked');
+  });
+
+  it('preserves deferred category and blocks promotion for deferred overrides', () => {
+    const report = classifyReadinessPaths(['custom-readiness.md'], {
+      deferred: ['custom-readiness.md'],
+    });
+
+    expect(report.diagnostics[0]).toMatchObject({
+      path: 'custom-readiness.md',
+      category: 'deferred',
+    });
+    expect(report.byCategory.deferred).toEqual(['custom-readiness.md']);
+    expect(report.promotionBlockers).toEqual(report.diagnostics);
     expect(report.promotion).toBe('blocked');
   });
 
@@ -99,20 +114,38 @@ describe('readiness boundary categories and promotion', () => {
     expect(isPromotionEligible(report)).toBe(true);
   });
 
-  it('diagnoses the lockfile mismatch as deferred and blocking', () => {
+  it('accepts the reconciled lockfile evidence without a stale mismatch blocker', () => {
     const report = classifyReadinessPaths(['bun.lock']);
 
-    expect(report.byCategory.deferred).toEqual(['bun.lock']);
+    expect(report.byCategory.accepted).toEqual(['bun.lock']);
+    expect(report.byCategory.deferred).toEqual([]);
     expect(report.diagnostics[0]).toEqual({
       path: 'bun.lock',
-      category: 'deferred',
+      category: 'accepted',
       reason:
-        'Known package version mismatch; promotion remains blocked until reconciliation.',
+        'Lockfile resolves the authoritative @nest-base/core@0.1.0 dependency.',
       observed: '@nest-base/core@0.1.0',
-      expected: '@nest-base/core@1.0.0',
     });
-    expect(report.promotion).toBe('blocked');
+    expect(report.promotion).toBe('eligible');
+    expect(report.promotionBlockers).toEqual([]);
+  });
+
+  it('blocks lockfile evidence when the authoritative core resolution is missing', () => {
+    const report = classifyReadinessPaths(['bun.lock'], {
+      lockfileContent: '"@nest-base/core": ["@nest-base/core@1.0.0", ""]',
+    });
+
+    expect(report.byCategory.accepted).toEqual(['bun.lock']);
+    expect(report.diagnostics[0]).toMatchObject({
+      path: 'bun.lock',
+      category: 'accepted',
+      blocking: true,
+      expected: '@nest-base/core@0.1.0',
+    });
+    expect(report.diagnostics[0].reason).toContain('Regenerate bun.lock');
     expect(report.promotionBlockers).toEqual(report.diagnostics);
+    expect(report.promotion).toBe('blocked');
+    expect(isPromotionEligible(report)).toBe(false);
   });
 
   it('forbids unexpected paths and blocks promotion with actionable diagnostics', () => {
@@ -152,18 +185,13 @@ describe('readiness boundary categories and promotion', () => {
     expect(isPromotionEligible(incomplete)).toBe(false);
   });
 
-  it('blocks the real rollout delta because the deferred lockfile is present', () => {
+  it('does not block the real rollout delta because the lockfile is reconciled', () => {
     const report = inspectCompleteWorktree();
 
     expect(report.baselineCommit).toBe(BASELINE_COMMIT);
-    expect(report.byCategory.deferred).toEqual(['bun.lock']);
+    expect(report.byCategory.deferred).toEqual([]);
     expect(report.promotion).toBe('blocked');
-    expect(
-      report.promotionBlockers.some(
-        (diagnostic) =>
-          diagnostic.path === 'bun.lock' && diagnostic.category === 'deferred',
-      ),
-    ).toBe(true);
+    expect(report.byCategory.accepted).toContain('bun.lock');
   });
 });
 
@@ -206,7 +234,7 @@ describe('existing core boundary evidence', () => {
   });
 
   it('defines the exact accepted and rollback-owned readiness inventories', () => {
-    expect(CORE_READINESS_SCOPE.deferredChangedFiles).toEqual(['bun.lock']);
+    expect(CORE_READINESS_SCOPE.deferredChangedFiles).toEqual([]);
     expect(READINESS_ROLLBACK_ARTIFACTS).toEqual([
       '.gitignore',
       'docs/framework-boundaries.md',
@@ -224,7 +252,7 @@ describe('existing core boundary evidence', () => {
     expect(documentation).toContain('baseline `5d3f865`');
     expect(documentation).toContain('`bun.lock`');
     expect(documentation).toContain('@nest-base/core@0.1.0');
-    expect(documentation).toContain('@nest-base/core@1.0.0');
+    expect(documentation).not.toContain('@nest-base/core@1.0.0');
     expect(documentation).toContain('wizard behavior');
     expect(documentation).toContain('Windows promotion cleanup');
   });

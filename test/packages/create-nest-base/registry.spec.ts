@@ -21,6 +21,8 @@ describe('create-nest-base capability registry', () => {
     const core = CAPABILITY_REGISTRY[0];
     expect(core.requiredness).toBe('locked');
     expect(core.status).toBe('available');
+    expect(core.package).toBe('@nest-base/core');
+    expect(core.defaultVersion).toBe('0.1.0');
 
     for (const entry of CAPABILITY_REGISTRY.slice(2)) {
       expect(entry.status).toBe('unavailable');

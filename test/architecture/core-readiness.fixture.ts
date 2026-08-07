@@ -64,6 +64,7 @@ export const CORE_READINESS_SCOPE = {
     'docs/framework-boundaries.md',
     'docs/create-nest-base.md',
     'docs/npm-package-platform.md',
+    'bun.lock',
     'eslint.config.mjs',
     'package.json',
     'src/common/controller/crud-controller.factory.ts',
@@ -94,7 +95,7 @@ export const CORE_READINESS_SCOPE = {
     'tools/core-run-context.ts',
     'tools/promotion-gates.ts',
   ],
-  deferredChangedFiles: ['bun.lock'],
+  deferredChangedFiles: [],
 } as const;
 
 export const READINESS_ROLLBACK_ARTIFACTS = [
@@ -115,6 +116,7 @@ export type ReadinessDiagnostic = {
   reason: string;
   observed?: string;
   expected?: string;
+  blocking?: boolean;
 };
 
 export type ReadinessReport = {
@@ -314,12 +316,18 @@ const CATEGORY_ORDER: ReadinessCategory[] = [
 
 const LOCKFILE_DIAGNOSTIC: ReadinessDiagnostic = {
   path: 'bun.lock',
-  category: 'deferred',
+  category: 'accepted',
   reason:
-    'Known package version mismatch; promotion remains blocked until reconciliation.',
+    'Lockfile resolves the authoritative @nest-base/core@0.1.0 dependency.',
   observed: '@nest-base/core@0.1.0',
-  expected: '@nest-base/core@1.0.0',
 };
+
+const AUTHORITATIVE_CORE_LOCKFILE_PATTERN =
+  /"@nest-base\/core": \["@nest-base\/core@0\.1\.0"(?:,|\s)/;
+
+function hasAuthoritativeCoreLockfileResolution(content: string): boolean {
+  return AUTHORITATIVE_CORE_LOCKFILE_PATTERN.test(content);
+}
 
 function emptyCategories(): Record<ReadinessCategory, string[]> {
   return {
@@ -332,7 +340,11 @@ function emptyCategories(): Record<ReadinessCategory, string[]> {
 
 export function classifyReadinessPaths(
   paths: readonly string[],
-  overrides: { accepted?: readonly string[] } = {},
+  overrides: {
+    accepted?: readonly string[];
+    deferred?: readonly string[];
+    lockfileContent?: string;
+  } = {},
 ): ReadinessReport {
   const changedPaths = [...new Set(paths.map(normalizePath))].sort();
   const accepted = new Set<string>(
@@ -341,10 +353,17 @@ export function classifyReadinessPaths(
       ...(overrides.accepted ?? []),
     ].map(normalizePath),
   );
-  const deferred = new Set<string>(CORE_READINESS_SCOPE.deferredChangedFiles);
+  const deferred = new Set<string>(
+    [
+      ...CORE_READINESS_SCOPE.deferredChangedFiles,
+      ...(overrides.deferred ?? []),
+    ].map(normalizePath),
+  );
   const rollbackOwned = new Set<string>(READINESS_ROLLBACK_ARTIFACTS);
   const byCategory = emptyCategories();
   const diagnostics: ReadinessDiagnostic[] = [];
+  const lockfileContent =
+    overrides.lockfileContent ?? readFileSync('bun.lock', 'utf8');
 
   for (const path of changedPaths) {
     const memberships = [
@@ -367,7 +386,11 @@ export function classifyReadinessPaths(
         reason: 'Contradictory deferred and accepted manifest membership.',
       });
     } else if (category === 'deferred') {
-      diagnostics.push({ ...LOCKFILE_DIAGNOSTIC });
+      diagnostics.push({
+        path,
+        category,
+        reason: 'Path is explicitly deferred from promotion readiness.',
+      });
     } else if (category === 'forbidden') {
       diagnostics.push({
         path,
@@ -375,14 +398,28 @@ export function classifyReadinessPaths(
         reason: 'Path is absent from every explicit readiness manifest.',
       });
     } else {
-      diagnostics.push({
-        path,
-        category,
-        reason:
-          category === 'rollback-owned'
-            ? 'Readiness-owned rollback artifact; informational for promotion.'
-            : 'Path is part of the explicit accepted rollout manifest.',
-      });
+      diagnostics.push(
+        path === 'bun.lock'
+          ? hasAuthoritativeCoreLockfileResolution(lockfileContent)
+            ? { ...LOCKFILE_DIAGNOSTIC }
+            : {
+                path,
+                category,
+                blocking: true,
+                reason:
+                  'Lockfile does not resolve the authoritative @nest-base/core@0.1.0 dependency. Regenerate bun.lock with @nest-base/core@0.1.0 before promotion.',
+                observed: 'Missing @nest-base/core@0.1.0 resolution',
+                expected: '@nest-base/core@0.1.0',
+              }
+          : {
+              path,
+              category,
+              reason:
+                category === 'rollback-owned'
+                  ? 'Readiness-owned rollback artifact; informational for promotion.'
+                  : 'Path is part of the explicit accepted rollout manifest.',
+            },
+      );
     }
   }
 
@@ -394,7 +431,9 @@ export function classifyReadinessPaths(
     );
   const promotionBlockers = diagnostics.filter(
     (diagnostic) =>
-      diagnostic.category === 'deferred' || diagnostic.category === 'forbidden',
+      diagnostic.blocking === true ||
+      diagnostic.category === 'deferred' ||
+      diagnostic.category === 'forbidden',
   );
   const promotion =
     complete && promotionBlockers.length === 0 ? 'eligible' : 'blocked';

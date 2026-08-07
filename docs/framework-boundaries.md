@@ -124,12 +124,13 @@ not new rollout delta. The fixture classifies the remaining baseline-relative
 paths through exact accepted, deferred, forbidden, and rollback-owned
 inventories.
 
-`bun.lock` is a known deferred package-integration mismatch: it records
-`@nest-base/core@0.1.0` while the wizard registry expects
-`@nest-base/core@1.0.0`. It is not rollback-owned, and its presence keeps
-promotion blocked until a later package/version reconciliation unit resolves
-it. This readiness unit does not change wizard behavior, package publication,
-lockfile regeneration, or version reconciliation.
+`bun.lock` records the authoritative `@nest-base/core@0.1.0` resolution, which
+is aligned with the wizard registry default and is therefore reconciled. The
+lockfile remains validation-only: this readiness evidence does not claim
+publication, promotion, registry availability, or genuine-core acceptance.
+Frozen-install validation must leave `bun.lock` unchanged. This unit does not
+regenerate or hand-edit the lockfile, and does not claim publication or change
+unrelated wizard behavior.
 
 The final readiness gate is source-owned and package-aware. Its rollback artifact
 set is limited to this document, the repository ignore rule, and the two
