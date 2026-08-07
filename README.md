@@ -135,6 +135,8 @@ Sin configurar, se exponen todas las columnas visibles; las columnas `select: fa
 **Controller** — la factory recibe los DTOs reales (ahí vive la validación) y las rutas a exponer:
 
 ```ts
+import { CrudControllerFactory } from '@nest-base/http-core';
+
 @Controller('personas')
 export class PersonaController extends CrudControllerFactory<Persona>({
   createDto: CreatePersonaDto,

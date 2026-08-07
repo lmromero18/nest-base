@@ -56,6 +56,21 @@ export interface CrudControllerOptions {
   swaggerTag?: string;
 }
 
+export interface CrudControllerInstance<T extends ObjectLiteral> {
+  readonly service: BaseService<T>;
+  find(query: Record<string, unknown>): Promise<PaginatedResponse<T>>;
+  findOne(id: string, query: Record<string, unknown>): Promise<T>;
+  create(data: DeepPartial<T>): Promise<T>;
+  update(id: string, data: DeepPartial<T>): Promise<T>;
+  softDelete(id: string): Promise<SuccessResponse>;
+  hardDelete(id: string): Promise<SuccessResponse>;
+  restore(id: string): Promise<SuccessResponse>;
+}
+
+export type CrudControllerConstructor<T extends ObjectLiteral> = abstract new (
+  service: BaseService<T>,
+) => CrudControllerInstance<T>;
+
 /**
  * Fábrica de controladores CRUD.
  *
@@ -81,7 +96,7 @@ export interface CrudControllerOptions {
  */
 export function CrudControllerFactory<T extends ObjectLiteral>(
   options: CrudControllerOptions = {},
-) {
+): CrudControllerConstructor<T> {
   const routes = new Set<CrudRoute>(options.routes ?? DEFAULT_CRUD_ROUTES);
 
   if (routes.has('create') && !options.createDto) {
@@ -249,5 +264,5 @@ export function CrudControllerFactory<T extends ObjectLiteral>(
     ApiTags(options.swaggerTag)(CrudController);
   }
 
-  return CrudController;
+  return CrudController as unknown as CrudControllerConstructor<T>;
 }
