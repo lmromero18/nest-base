@@ -1,17 +1,23 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
+  rmdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   acquireCoreOutputLock,
   createCorePackageWorkspace,
   createCoreRunContext,
+  getCoreOutputLockPath,
   releaseCoreOutputLock,
 } from './core-run-context';
 
@@ -26,11 +32,20 @@ export interface PromotionGateOptions {
   execute?: (
     command: readonly string[],
     options: ChildExecutionOptions,
-  ) => void;
+  ) => void | Promise<void>;
   createContext?: typeof createCoreRunContext;
   cleanOutputs?: (packageRoot?: string) => boolean;
+  cleanHttpCoreOutputs?: () => boolean;
+  cleanCoreRepositoryOutputs?: () => boolean;
   removeRunRoot?: (runRoot: string, ownershipToken?: string) => void;
 }
+
+export type ProcessIdentity = {
+  pid: number;
+  commandLine: string;
+  startTime: string;
+  owner: string;
+};
 
 type CleanupFailure = {
   operation: string;
@@ -38,7 +53,9 @@ type CleanupFailure = {
   error: unknown;
 };
 
-const gates = [
+type PromotionCommand = readonly [string, readonly string[]];
+
+const gates: readonly PromotionCommand[] = [
   ['C0', ['bun', 'test', 'test/architecture/core-readiness.spec.ts']],
   ['C1', ['bun', 'test', 'test/packages/core/context-audit.spec.ts']],
   ['C2-build', ['bun', 'run', 'build:core']],
@@ -47,10 +64,37 @@ const gates = [
   ['C2-tarball', ['bun', 'run', 'audit:tarball']],
   ['C3', ['bun', 'run', 'verify:consumer']],
   ['C4', ['bun', 'test', 'test/packages/core/promotion-contract.spec.ts']],
-] as const;
+  ['http-core-build', ['bun', 'run', 'build:http-core']],
+  ['http-core-audit', ['bun', 'run', 'audit:http-core']],
+  ['http-core-tarball', ['bun', 'run', 'audit:http-core:tarball']],
+  ['http-core-consumer', ['bun', 'run', 'verify:http-core:consumer']],
+];
+
+const frozenInstall: PromotionCommand = [
+  'install',
+  ['bun', 'install', '--frozen-lockfile'],
+];
+
+export function getPromotionCommands(): readonly PromotionCommand[] {
+  return [frozenInstall, ...gates];
+}
+
+export function getPromotionCheckpointEvidence(checkpoint: string): {
+  packageName: '@nest-base/core' | '@nest-base/http-core';
+  checkpoint: string;
+} {
+  return {
+    packageName: checkpoint.startsWith('http-core')
+      ? '@nest-base/http-core'
+      : '@nest-base/core',
+    checkpoint,
+  };
+}
 
 const repositoryRoot = resolve(process.cwd());
 const childTimeoutMs = 120_000;
+const cleanupMaxRetries = 3;
+const staleRunRootAgeMs = 5 * 60_000;
 const ownershipMarker = '.promotion-owner';
 const requiredArtifacts = [
   'dist/esm/index.js',
@@ -96,30 +140,148 @@ export function cleanPromotionOutputs(
   if (!arePromotionPathsEqual(packageRoot, ownedPackageRoot)) return false;
   if (!existsSync(packageRoot)) return true;
   try {
-    rmSync(resolve(packageRoot, 'dist'), { recursive: true, force: true });
-    rmSync(resolve(packageRoot, '.dist-backup'), {
-      recursive: true,
-      force: true,
-    });
-    rmSync(resolve(packageRoot, '.build-types'), {
-      recursive: true,
-      force: true,
-    });
+    for (const path of getPackageCleanupPaths(packageRoot))
+      removeOwnedPath(path);
     for (const entry of readdirSync(packageRoot, { withFileTypes: true })) {
       if (entry.isDirectory() && entry.name.startsWith('.build-types-'))
-        rmSync(resolve(packageRoot, entry.name), {
-          recursive: true,
-          force: true,
-        });
+        removeOwnedPath(resolve(packageRoot, entry.name));
     }
-    return (
-      !existsSync(resolve(packageRoot, 'dist')) &&
-      !existsSync(resolve(packageRoot, '.dist-backup')) &&
-      !existsSync(resolve(packageRoot, '.build-types')) &&
-      !readdirSync(packageRoot).some((name) => name.startsWith('.build-types-'))
-    );
+    return getPromotionResidue(packageRoot, runRoot).length === 0;
   } catch {
     return false;
+  }
+}
+
+export function getPromotionResidue(
+  packageRoot: string,
+  runRoot: string,
+): string[] {
+  if (!arePromotionPathsEqual(packageRoot, resolve(runRoot, 'package')))
+    return [resolve(packageRoot)];
+
+  const residue = new Set<string>();
+  for (const path of getPackageCleanupPaths(packageRoot))
+    if (existsSync(path)) residue.add(path);
+  if (existsSync(packageRoot)) {
+    try {
+      for (const entry of readdirSync(packageRoot, { withFileTypes: true }))
+        if (
+          (entry.isDirectory() && entry.name.startsWith('.build-types-')) ||
+          (entry.isFile() && entry.name.endsWith('.tgz'))
+        )
+          residue.add(resolve(packageRoot, entry.name));
+    } catch {
+      residue.add(resolve(packageRoot));
+    }
+  }
+  if (existsSync(runRoot)) {
+    try {
+      for (const entry of readdirSync(runRoot, { withFileTypes: true }))
+        if (
+          entry.name !== ownershipMarker &&
+          entry.name !== 'promotion-build-id' &&
+          entry.name !== 'package'
+        )
+          residue.add(resolve(runRoot, entry.name));
+    } catch {
+      residue.add(resolve(runRoot));
+    }
+  }
+  return [...residue].sort();
+}
+
+function cleanDeclaredPackageOutputs(packageRoot: string): boolean {
+  try {
+    for (const path of getPackageCleanupPaths(packageRoot))
+      removeOwnedPath(path);
+    for (const entry of readdirSync(packageRoot, { withFileTypes: true }))
+      if (entry.isFile() && entry.name.endsWith('.tgz'))
+        removeOwnedPath(resolve(packageRoot, entry.name));
+    return getDeclaredPackageResidue(packageRoot).length === 0;
+  } catch {
+    return false;
+  }
+}
+
+function getDeclaredPackageResidue(packageRoot: string): string[] {
+  const residue: string[] = [];
+  for (const path of getPackageCleanupPaths(packageRoot))
+    if (existsSync(path)) residue.push(path);
+  try {
+    for (const entry of readdirSync(packageRoot, { withFileTypes: true }))
+      if (entry.isFile() && entry.name.endsWith('.tgz'))
+        residue.push(resolve(packageRoot, entry.name));
+  } catch {
+    residue.push(resolve(packageRoot));
+  }
+  return residue.sort();
+}
+
+export function isStalePromotionRunRoot(
+  runRoot: string,
+  now = Date.now(),
+  lockPath = getCoreOutputLockPath(),
+  lockToken?: string,
+): boolean {
+  const resolvedRunRoot = resolve(runRoot);
+  const marker = resolve(resolvedRunRoot, ownershipMarker);
+  if (
+    resolve(resolvedRunRoot, '..') !== resolve(tmpdir()) ||
+    !basename(resolvedRunRoot).startsWith('nest-base-core-run-') ||
+    !existsSync(marker)
+  )
+    return false;
+  if (isPromotionLockActive(lockPath, lockToken)) return false;
+  try {
+    const markerAge = now - statSync(marker).mtimeMs;
+    return markerAge >= staleRunRootAgeMs;
+  } catch {
+    return false;
+  }
+}
+
+export function cleanStalePromotionRunRoots(
+  except?: string,
+  lockPath?: string,
+  lockToken?: string,
+): void {
+  for (const entry of readdirSync(tmpdir(), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const runRoot = resolve(tmpdir(), entry.name);
+    if (
+      (!except || !arePromotionPathsEqual(runRoot, except)) &&
+      isStalePromotionRunRoot(runRoot, Date.now(), lockPath, lockToken)
+    )
+      removeOwnedPath(runRoot);
+  }
+}
+
+function isPromotionLockActive(lockPath: string, lockToken?: string): boolean {
+  try {
+    const owner = JSON.parse(
+      readFileSync(resolve(lockPath, 'owner.json'), 'utf8'),
+    ) as { pid?: number };
+    if (
+      lockToken &&
+      owner.pid === process.pid &&
+      (owner as { token?: string }).token === lockToken
+    )
+      return false;
+    const pid = owner.pid;
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0)
+      return true;
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      'code' in error &&
+      (error.code === 'EPERM' || error.code === 'EACCES')
+    )
+      return true;
+    if (error instanceof Error && 'code' in error && error.code === 'ESRCH')
+      return false;
+    return true;
   }
 }
 
@@ -139,7 +301,25 @@ function removeOwnedRunRoot(runRoot: string, ownershipToken?: string): void {
     readFileSync(marker, 'utf8') !== ownershipToken
   )
     throw new Error('Promotion run root ownership was not established');
-  rmSync(resolvedRunRoot, { recursive: true, force: true });
+  removeOwnedPath(resolvedRunRoot);
+}
+
+function removeOwnedPath(path: string): void {
+  rmSync(path, {
+    recursive: true,
+    force: true,
+    maxRetries: cleanupMaxRetries,
+    retryDelay: 100,
+  });
+}
+
+function getPackageCleanupPaths(packageRoot: string): string[] {
+  return [
+    resolve(packageRoot, 'dist'),
+    resolve(packageRoot, '.dist-backup'),
+    resolve(packageRoot, '.build-work'),
+    resolve(packageRoot, '.build-types'),
+  ];
 }
 
 function assertPromotionContext(packageRoot: string, runRoot: string): void {
@@ -190,6 +370,24 @@ function establishRunRootOwnership(runRoot: string, buildId: string): void {
   });
 }
 
+function removeUnownedEmptyRunRoot(runRoot: string): void {
+  const quarantine = `${resolve(runRoot)}.quarantine-${randomUUID()}`;
+  try {
+    if (!existsSync(runRoot) || readdirSync(runRoot).length !== 0) return;
+    renameSync(runRoot, quarantine);
+    if (readdirSync(quarantine).length === 0) rmdirSync(quarantine);
+    else if (!existsSync(runRoot)) {
+      try {
+        renameSync(quarantine, runRoot);
+      } catch {
+        // A new owner may have acquired the original path; retain the quarantine.
+      }
+    }
+  } catch {
+    // An unowned or concurrently changed waiter root must never be deleted.
+  }
+}
+
 function describeCleanupFailure(failure: CleanupFailure): string {
   return `${failure.operation} at ${failure.path}: ${
     failure.error instanceof Error
@@ -198,7 +396,71 @@ function describeCleanupFailure(failure: CleanupFailure): string {
   }`;
 }
 
-export function runPromotionGates(options: PromotionGateOptions = {}): void {
+function promotionFailureStatus(error: unknown): string {
+  if (!(error instanceof Error)) return 'unknown';
+  const details = error as Error & { status?: number; code?: string };
+  return String(details.status ?? details.code ?? 'unknown');
+}
+
+export function validateFrozenInstallSnapshot(
+  lockfileBefore: string,
+  lockfileAfter: string,
+  declaredCoreVersion: string,
+  lockfileCoreResolution: string,
+): void {
+  if (lockfileAfter !== lockfileBefore)
+    throw new Error('Frozen install mutated bun.lock');
+  if (declaredCoreVersion !== '0.1.0')
+    throw new Error(
+      'Root package must retain the authoritative @nest-base/core@0.1.0 development resolution',
+    );
+  let lockfile: {
+    workspaces?: {
+      '': { devDependencies?: Record<string, string> };
+    };
+    packages?: Record<string, unknown>;
+  };
+  try {
+    lockfile = JSON.parse(
+      lockfileCoreResolution.replace(/,\s*([}\]])/g, '$1'),
+    ) as typeof lockfile;
+  } catch {
+    throw new Error(
+      'bun.lock must retain the authoritative @nest-base/core@0.1.0 resolution',
+    );
+  }
+  const rootResolution =
+    lockfile.workspaces?.['']?.devDependencies?.['@nest-base/core'];
+  const packageResolution = lockfile.packages?.['@nest-base/core'];
+  if (
+    rootResolution !== '0.1.0' ||
+    !Array.isArray(packageResolution) ||
+    packageResolution[0] !== '@nest-base/core@0.1.0'
+  )
+    throw new Error(
+      'bun.lock must retain the authoritative @nest-base/core@0.1.0 resolution',
+    );
+}
+
+function assertFrozenInstallContract(lockfileBefore: string): void {
+  const lockfileAfter = readFileSync(
+    resolve(repositoryRoot, 'bun.lock'),
+    'utf8',
+  );
+  const manifest = JSON.parse(
+    readFileSync(resolve(repositoryRoot, 'package.json'), 'utf8'),
+  ) as { devDependencies?: Record<string, string> };
+  validateFrozenInstallSnapshot(
+    lockfileBefore,
+    lockfileAfter,
+    manifest.devDependencies?.['@nest-base/core'] ?? '',
+    lockfileAfter,
+  );
+}
+
+export async function runPromotionGates(
+  options: PromotionGateOptions = {},
+): Promise<void> {
   let stage = 'startup cleanup';
   const context = (options.createContext ?? createCoreRunContext)();
   let lockToken: string | undefined;
@@ -206,34 +468,62 @@ export function runPromotionGates(options: PromotionGateOptions = {}): void {
   const clean =
     options.cleanOutputs ??
     ((packageRoot?: string) => cleanOutputs(packageRoot, context.runRoot));
+  const cleanHttpCore =
+    options.cleanHttpCoreOutputs ??
+    (() =>
+      cleanDeclaredPackageOutputs(
+        resolve(repositoryRoot, 'packages/http-core'),
+      ));
+  const cleanCoreRepository =
+    options.cleanCoreRepositoryOutputs ??
+    (() =>
+      cleanDeclaredPackageOutputs(resolve(repositoryRoot, 'packages/core')));
   const removeRunRoot = options.removeRunRoot ?? removeOwnedRunRoot;
   const execute =
     options.execute ??
     ((command, childOptions) => {
-      execFileSync(command[0], command.slice(1), childOptions);
+      return executeBoundedCommand(command, childOptions);
     });
   let promotionError: unknown;
+  const lockfileBefore = readFileSync(
+    resolve(repositoryRoot, 'bun.lock'),
+    'utf8',
+  );
   try {
     assertPromotionContext(context.packageRoot, context.runRoot);
-    establishRunRootOwnership(context.runRoot, context.buildId);
-    ownsRunRoot = true;
-    createCorePackageWorkspace(repositoryRoot, context.packageRoot);
     lockToken = (options.acquireLock ?? acquireCoreOutputLock)({
       lockPath: context.lockPath,
+      timeoutMs: childTimeoutMs,
     });
+    establishRunRootOwnership(context.runRoot, context.buildId);
+    ownsRunRoot = true;
+    cleanStalePromotionRunRoots(context.runRoot, context.lockPath, lockToken);
+    createCorePackageWorkspace(repositoryRoot, context.packageRoot);
     if (!clean(context.packageRoot))
       throw new Error('Could not clean generated outputs');
-    for (const [checkpoint, command] of gates) {
+    if (!cleanHttpCore())
+      throw new Error('Could not clean HTTP-core generated outputs');
+    if (!cleanCoreRepository())
+      throw new Error('Could not clean core repository generated outputs');
+    for (const [checkpoint, command] of getPromotionCommands()) {
       stage = checkpoint;
       console.log(`${checkpoint} starting: ${command.join(' ')}`);
-      if (checkpoint === 'C2-artifacts') {
+      if (checkpoint === 'install') {
+        await execute(command, {
+          stdio: 'inherit',
+          timeout: childTimeoutMs,
+          killSignal: 'SIGTERM',
+          env: { ...process.env, NEST_BASE_REPOSITORY_ROOT: repositoryRoot },
+        });
+        assertFrozenInstallContract(lockfileBefore);
+      } else if (checkpoint === 'C2-artifacts') {
         assertCompleteArtifactInventory(
           context.packageRoot,
           context.runRoot,
           context.buildId,
         );
       } else {
-        execute(command, {
+        await execute(command, {
           stdio: 'inherit',
           timeout: childTimeoutMs,
           killSignal: 'SIGTERM',
@@ -249,6 +539,7 @@ export function runPromotionGates(options: PromotionGateOptions = {}): void {
             ),
             NEST_BASE_REPOSITORY_ROOT: repositoryRoot,
             NEST_BASE_CORE_LOCK_TOKEN: lockToken,
+            NEST_BASE_PROMOTION_RUN_ROOT: context.runRoot,
             ...(checkpoint === 'C3'
               ? {
                   NEST_BASE_CONSUMER_USE_EXISTING_BUILD: '1',
@@ -261,7 +552,10 @@ export function runPromotionGates(options: PromotionGateOptions = {}): void {
       console.log(`${checkpoint} passed`);
     }
   } catch (error) {
-    console.error(`Promotion failed at ${stage}; cleanup pending.`);
+    const evidence = getPromotionCheckpointEvidence(stage);
+    console.error(
+      `Promotion failed at ${evidence.checkpoint} for ${evidence.packageName}; status=${promotionFailureStatus(error)}; cleanup pending.`,
+    );
     console.error(formatChildFailure(error));
     promotionError = error;
   } finally {
@@ -283,9 +577,47 @@ export function runPromotionGates(options: PromotionGateOptions = {}): void {
           error,
         });
       }
+      for (const path of getPromotionResidue(
+        context.packageRoot,
+        context.runRoot,
+      ))
+        cleanupFailures.push({
+          operation: 'residual artifact',
+          path,
+          error: new Error('cleanup could not prove absence'),
+        });
+      if (!cleanHttpCore())
+        cleanupFailures.push({
+          operation: 'clean HTTP-core outputs',
+          path: resolve(repositoryRoot, 'packages/http-core'),
+          error: new Error('cleanup returned false'),
+        });
+      if (!cleanCoreRepository())
+        cleanupFailures.push({
+          operation: 'clean core repository outputs',
+          path: resolve(repositoryRoot, 'packages/core'),
+          error: new Error('cleanup returned false'),
+        });
+      for (const path of getDeclaredPackageResidue(
+        resolve(repositoryRoot, 'packages/http-core'),
+      ))
+        cleanupFailures.push({
+          operation: 'HTTP-core residual artifact',
+          path,
+          error: new Error('cleanup could not prove absence'),
+        });
+      for (const path of getDeclaredPackageResidue(
+        resolve(repositoryRoot, 'packages/core'),
+      ))
+        cleanupFailures.push({
+          operation: 'core repository residual artifact',
+          path,
+          error: new Error('cleanup could not prove absence'),
+        });
     }
     try {
       if (ownsRunRoot) removeRunRoot(context.runRoot, context.buildId);
+      else removeUnownedEmptyRunRoot(context.runRoot);
     } catch (error) {
       cleanupFailures.push({
         operation: 'remove run root',
@@ -335,5 +667,212 @@ export function formatChildFailure(error: unknown): string {
   return `Child execution failed: ${details.message}; code=${details.code ?? 'unknown'}; signal=${details.signal ?? 'none'}; command=${details.cmd ?? 'unknown'}`;
 }
 
+export function executeBoundedCommand(
+  command: readonly string[],
+  childOptions: ChildExecutionOptions,
+  dependencies: {
+    exec?: (
+      file: string,
+      args: readonly string[],
+      options: ChildExecutionOptions,
+      callback: (error: Error | null) => void,
+    ) => ChildProcess;
+    capture?: typeof captureProcessIdentity;
+    terminate?: typeof terminateProcessTree;
+  } = {},
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = childOptions.timeout;
+    const executionOptions = {
+      ...childOptions,
+      timeout: undefined,
+      detached: true,
+      killSignal: undefined,
+    } as unknown as ChildExecutionOptions;
+    let baseline: ProcessIdentity | null = null;
+    let child: ChildProcess;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
+    const settleReject = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    try {
+      child = (dependencies.exec ?? execFile)(
+        command[0],
+        command.slice(1),
+        executionOptions,
+        (error) => {
+          if (!error) {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            resolve();
+            return;
+          }
+          const details = error as Error & {
+            code?: string;
+            signal?: string;
+          };
+          if (
+            (details.code === 'ETIMEDOUT' || details.signal === 'SIGTERM') &&
+            baseline &&
+            typeof child.pid === 'number'
+          ) {
+            const current = (dependencies.capture ?? captureProcessIdentity)(
+              child.pid,
+            );
+            if (
+              current &&
+              isExpectedProcess(current, command) &&
+              isSameProcessIdentity(current, baseline)
+            )
+              (dependencies.terminate ?? terminateProcessTree)(baseline);
+          }
+          settleReject(error);
+        },
+      );
+    } catch (error) {
+      settleReject(error);
+      return;
+    }
+
+    baseline = child.pid
+      ? captureIdentityBaseline(child.pid, dependencies)
+      : null;
+    if (typeof timeout === 'number')
+      timer = setTimeout(() => {
+        const expected = baseline;
+        const current =
+          typeof child.pid === 'number'
+            ? (dependencies.capture ?? captureProcessIdentity)(child.pid)
+            : null;
+        if (
+          current &&
+          expected &&
+          isExpectedProcess(current, command) &&
+          isSameProcessIdentity(current, expected)
+        )
+          (dependencies.terminate ?? terminateProcessTree)(expected);
+        settleReject(
+          Object.assign(new Error('Child execution timed out'), {
+            code: 'ETIMEDOUT',
+            pid: child.pid,
+            signal: 'SIGTERM',
+            cmd: command.join(' '),
+          }),
+        );
+      }, timeout);
+  });
+}
+
+export function captureProcessIdentity(pid: number): ProcessIdentity | null {
+  try {
+    if (process.platform === 'win32') {
+      const output = execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `$p=Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}"; if ($p) { $o=$p.GetOwner(); [pscustomobject]@{CommandLine=$p.CommandLine; CreationDate=$p.CreationDate.ToUniversalTime().ToString('o'); Owner="$($o.Domain)\\$($o.User)"} | ConvertTo-Json -Compress }`,
+        ],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+      ).trim();
+      if (!output) return null;
+      const processInfo = JSON.parse(output) as {
+        CommandLine?: string;
+        CreationDate?: string;
+        Owner?: string;
+      };
+      if (
+        !processInfo.CommandLine ||
+        !processInfo.CreationDate ||
+        !processInfo.Owner
+      )
+        return null;
+      return {
+        pid,
+        commandLine: processInfo.CommandLine,
+        startTime: processInfo.CreationDate,
+        owner: processInfo.Owner,
+      };
+    }
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const statFields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    const commandLine = readFileSync(`/proc/${pid}/cmdline`, 'utf8')
+      .replaceAll('\0', ' ')
+      .trim();
+    const owner = String(statSync(`/proc/${pid}`).uid);
+    const startTime = statFields[19];
+    if (!commandLine || !startTime) return null;
+    return { pid, commandLine, startTime, owner };
+  } catch {
+    return null;
+  }
+}
+
+function captureIdentityBaseline(
+  pid: number,
+  dependencies: { capture?: typeof captureProcessIdentity },
+): ProcessIdentity | null {
+  const capture = dependencies.capture ?? captureProcessIdentity;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const identity = capture(pid);
+    if (identity) return identity;
+    if (attempt < 4)
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+  }
+  return null;
+}
+
+export function isExpectedProcess(
+  identity: ProcessIdentity,
+  command: readonly string[],
+): boolean {
+  const expectedCommand = command.join(' ');
+  return (
+    identity.commandLine.includes(expectedCommand) ||
+    command.every((part) => identity.commandLine.includes(part))
+  );
+}
+
+export function terminateProcessTree(identity: ProcessIdentity): void {
+  try {
+    const current = captureProcessIdentity(identity.pid);
+    if (!current || !isSameProcessIdentity(current, identity)) return;
+    if (process.platform === 'win32')
+      execFileSync('taskkill', ['/PID', String(identity.pid), '/T', '/F'], {
+        stdio: 'ignore',
+      });
+    else {
+      try {
+        process.kill(-identity.pid, 'SIGTERM');
+      } catch {
+        // The process group may have exited between validation and cleanup.
+      }
+    }
+  } catch {
+    // The process tree may have exited between timeout detection and cleanup.
+  }
+}
+
+export function isSameProcessIdentity(
+  current: ProcessIdentity,
+  expected: ProcessIdentity,
+): boolean {
+  return (
+    current.pid === expected.pid &&
+    current.commandLine === expected.commandLine &&
+    current.startTime === expected.startTime &&
+    current.owner === expected.owner
+  );
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === resolve(__filename))
-  runPromotionGates();
+  runPromotionGates().catch((error: unknown) => {
+    console.error(formatChildFailure(error));
+    process.exitCode = 1;
+  });

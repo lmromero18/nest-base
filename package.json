@@ -1,7 +1,7 @@
 {
   "name": "nest-base",
   "version": "0.0.1",
-  "description": "",
+  "description": "Plantilla base para construir APIs REST con NestJS. Su eje es una **librería CRUD genérica** (`BaseService` + `CrudControllerFactory`) que da a cada módulo listados con filtros dinámicos, paginación, validación real y auditoría sin repetir código.",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -11,16 +11,29 @@
   },
   "scripts": {
     "build": "nest build",
+    "build:core": "bun packages/core/build.ts",
+    "build:http-core": "bun packages/http-core/build.ts",
+    "audit:core": "bun packages/core/audit.ts",
+    "audit:http-core": "bun packages/http-core/audit.ts",
+    "audit:tarball": "bun packages/core/audit-tarball.ts",
+    "audit:http-core:tarball": "bun packages/http-core/audit-tarball.ts",
+    "verify:consumer": "bun tools/verify-consumer.ts",
+    "verify:http-core:consumer": "bun packages/http-core/verify-consumer.ts",
+    "audit:promotion": "bun tools/promotion-gates.ts",
+    "install:frozen": "bun install --frozen-lockfile",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"test/**/*.{ts,tsx}\" \"tools/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\" \"*.{js,mjs,json}\" \"docs/**/*.md\"",
     "start": "bun src/main.ts",
     "start:dev": "bun --watch src/main.ts",
     "start:debug": "bun --inspect --watch src/main.ts",
     "start:prod": "NODE_ENV=production bun src/main.ts",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
-    "lint:check": "bun run lint",
-    "lint:fix": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
-    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "lint": "eslint \"{src,apps,libs,test,tools,packages}/**/*.{ts,tsx}\"",
+    "lint:check": "eslint \"{src,apps,libs,test,tools,packages}/**/*.{ts,tsx}\"",
+    "lint:fix": "eslint \"{src,apps,libs,test,tools,packages}/**/*.{ts,tsx}\" --fix",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"test/**/*.{ts,tsx}\" \"tools/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\" \"*.{js,mjs,json}\" \"docs/**/*.md\"",
+    "diff:check": "git diff --check",
+    "quality:check": "bun run test:focused:check && bun run lint:check && bun run format:check && bun run typecheck && bun run diff:check",
+    "test:focused:check": "bun tools/verify-no-focused-tests.ts",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:cov": "bun test --coverage",
@@ -74,6 +87,21 @@
     "globals": "^17.0.0",
     "prettier": "^3.4.2",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.20.0"
-  }
+    "typescript-eslint": "^8.20.0",
+    "@nest-base/core": "0.1.0"
+  },
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lmromero18/nest-base.git"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/lmromero18/nest-base/issues"
+  },
+  "homepage": "https://github.com/lmromero18/nest-base#readme"
 }

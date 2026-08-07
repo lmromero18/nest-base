@@ -16,6 +16,53 @@ const expectedPeers = {
   typeorm: '>=0.3.28 <0.4.0',
 };
 
+export interface HttpCoreRuntimeArtifact {
+  path: string;
+  source: string;
+}
+
+export interface HttpCoreDependencyAuditInput {
+  manifest: {
+    dependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+  runtimeFiles: HttpCoreRuntimeArtifact[];
+  cjsBoundaryExists: boolean;
+}
+
+export function inspectHttpCoreDependencyBoundary(
+  input: HttpCoreDependencyAuditInput,
+): string[] {
+  const violations: string[] = [];
+  const dependencies = {
+    ...input.manifest.dependencies,
+    ...input.manifest.optionalDependencies,
+  };
+  if (Object.keys(dependencies).length > 0)
+    violations.push(
+      `HTTP Core must not declare runtime dependencies: ${Object.keys(dependencies).sort().join(', ')}`,
+    );
+  if (
+    JSON.stringify(input.manifest.peerDependencies) !==
+    JSON.stringify(expectedPeers)
+  )
+    violations.push('HTTP Core peer dependency rules changed unexpectedly');
+  for (const file of input.runtimeFiles) {
+    if (file.source.includes('src/common'))
+      violations.push(
+        `${file.path}: emitted runtime output references repository source`,
+      );
+    if (file.source.includes('node_modules/'))
+      violations.push(
+        `${file.path}: emitted runtime output references node_modules`,
+      );
+  }
+  if (!input.cjsBoundaryExists)
+    violations.push('Missing nested CommonJS package boundary');
+  return violations.sort();
+}
+
 function files(path: string): string[] {
   return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
     const full = resolve(path, entry.name);
@@ -24,30 +71,34 @@ function files(path: string): string[] {
 }
 
 function main(): void {
-  if (manifest.dependencies || manifest.optionalDependencies)
-    throw new Error('HTTP Core package must not bundle runtime peers');
-  if (
-    JSON.stringify(manifest.peerDependencies) !== JSON.stringify(expectedPeers)
-  )
-    throw new Error('HTTP Core peer dependency rules changed unexpectedly');
   const runtime = files(resolve(root, 'dist')).filter((path) =>
     path.endsWith('.js'),
   );
+  const violations = inspectHttpCoreDependencyBoundary({
+    manifest,
+    runtimeFiles: runtime.map((path) => ({
+      path,
+      source: readFileSync(path, 'utf8'),
+    })),
+    cjsBoundaryExists: existsSync(resolve(root, 'dist/cjs/package.json')),
+  });
+  if (runtime.length === 0)
+    violations.push('HTTP Core package build output is incomplete');
   if (
-    !existsSync(resolve(root, 'dist/cjs/package.json')) ||
-    runtime.length === 0
+    !runtime.some((path) =>
+      readFileSync(path, 'utf8').includes('SuccessResponse'),
+    )
   )
-    throw new Error('HTTP Core package build output is incomplete');
-  const text = runtime.map((path) => readFileSync(path, 'utf8')).join('\n');
-  if (text.includes('src/common') || text.includes('SuccessResponse') === false)
-    throw new Error(
+    violations.push(
       'HTTP Core runtime output does not contain the adapter contract',
     );
-  if (text.includes('node_modules/'))
-    throw new Error('HTTP Core output references node_modules');
+  if (violations.length > 0)
+    throw new Error(
+      `HTTP Core dependency audit failed:\n${violations.sort().join('\n')}`,
+    );
   console.log(
     `audit:http-core passed (${runtime.length} runtime files; peers externalized)`,
   );
 }
 
-main();
+if (import.meta.main) main();

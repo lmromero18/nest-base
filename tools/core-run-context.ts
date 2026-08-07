@@ -3,9 +3,11 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  renameSync,
+  rmdirSync,
   rmSync,
   symlinkSync,
-  statSync,
   writeFileSync,
 } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -21,6 +23,7 @@ export interface CoreLockOptions {
   timeoutMs?: number;
   now?: () => number;
   wait?: (milliseconds: number) => void;
+  beforePublish?: () => void;
 }
 
 export interface CoreRunContext {
@@ -160,6 +163,7 @@ export function getCoreOutputLockPath(lockPath?: string): string {
 
 function acquireLock(options: CoreLockOptions): string {
   const lockRoot = getCoreOutputLockPath(options.lockPath);
+  const publishingRoot = `${lockRoot}.publishing-${randomUUID()}`;
   const token = randomUUID();
   const now = options.now ?? Date.now;
   const wait =
@@ -175,25 +179,33 @@ function acquireLock(options: CoreLockOptions): string {
   const timeoutMs = options.timeoutMs ?? lockWaitTimeoutMs;
   const deadline = now() + timeoutMs;
   for (;;) {
+    let attemptedPublish = false;
     try {
-      mkdirSync(lockRoot);
+      mkdirSync(publishingRoot);
       writeFileSync(
-        resolve(lockRoot, 'owner.json'),
+        resolve(publishingRoot, 'owner.json'),
         JSON.stringify({
           pid: process.pid,
           token,
           createdAt: Date.now(),
         } satisfies LockOwner),
       );
+      options.beforePublish?.();
+      attemptedPublish = true;
+      renameSync(publishingRoot, lockRoot);
       return token;
     } catch (error) {
+      rmSync(publishingRoot, { recursive: true, force: true });
+      const isPublishContention =
+        attemptedPublish &&
+        error instanceof Error &&
+        'code' in error &&
+        error.code === 'EPERM';
       if (
-        !(error instanceof Error) ||
+        (!isPublishContention && !(error instanceof Error)) ||
         !('code' in error) ||
-        error.code !== 'EEXIST'
+        (!isPublishContention && error.code !== 'EEXIST')
       ) {
-        if (existsSync(lockRoot))
-          rmSync(lockRoot, { recursive: true, force: true });
         throw error;
       }
       if (removeDeadLock(lockRoot)) continue;
@@ -208,13 +220,19 @@ function acquireLock(options: CoreLockOptions): string {
 }
 
 function removeDeadLock(lockRoot: string): boolean {
+  let owner: LockOwner | undefined;
+  let ownerContent: string | undefined;
   try {
-    const owner = JSON.parse(
-      readFileSync(resolve(lockRoot, 'owner.json'), 'utf8'),
-    ) as LockOwner;
+    ownerContent = readFileSync(resolve(lockRoot, 'owner.json'), 'utf8');
+    const parsedOwner: unknown = JSON.parse(ownerContent);
+    if (!isLockOwner(parsedOwner))
+      return quarantineMalformedLock(lockRoot, ownerContent);
+    owner = parsedOwner;
     process.kill(owner.pid, 0);
     return false;
   } catch (error) {
+    if (ownerContent !== undefined && owner === undefined)
+      return quarantineMalformedLock(lockRoot, ownerContent);
     if (
       error instanceof Error &&
       'code' in error &&
@@ -222,25 +240,79 @@ function removeDeadLock(lockRoot: string): boolean {
     )
       return false;
 
-    if (!isStaleLock(lockRoot)) return false;
-    if (existsSync(lockRoot))
-      rmSync(lockRoot, { recursive: true, force: true });
-    return true;
+    if (
+      !(error instanceof Error) ||
+      !('code' in error) ||
+      error.code !== 'ESRCH'
+    )
+      return false;
+
+    try {
+      if (!owner) return false;
+      const currentOwnerContent = readFileSync(
+        resolve(lockRoot, 'owner.json'),
+        'utf8',
+      );
+      const currentOwner = JSON.parse(currentOwnerContent) as LockOwner;
+      if (
+        currentOwnerContent !== ownerContent ||
+        currentOwner.pid !== owner.pid ||
+        currentOwner.token !== owner.token
+      )
+        return false;
+      const quarantine = `${lockRoot}.quarantine-${randomUUID()}`;
+      renameSync(lockRoot, quarantine);
+      const quarantinedOwnerPath = resolve(quarantine, 'owner.json');
+      if (
+        readFileSync(quarantinedOwnerPath, 'utf8') !== currentOwnerContent ||
+        readdirSync(quarantine).length !== 1
+      )
+        return false;
+      rmSync(quarantinedOwnerPath, { force: true });
+      rmdirSync(quarantine);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
-function isStaleLock(lockRoot: string): boolean {
+function isLockOwner(value: unknown): value is LockOwner {
+  if (!value || typeof value !== 'object') return false;
+  const owner = value as Partial<LockOwner>;
+  const pid = owner.pid;
+  return (
+    typeof pid === 'number' &&
+    Number.isInteger(pid) &&
+    pid > 0 &&
+    typeof owner.token === 'string'
+  );
+}
+
+function quarantineMalformedLock(
+  lockRoot: string,
+  expectedOwnerContent: string,
+): boolean {
+  const quarantine = `${lockRoot}.quarantine-${randomUUID()}`;
   try {
-    const owner = JSON.parse(
-      readFileSync(resolve(lockRoot, 'owner.json'), 'utf8'),
-    ) as LockOwner;
-    if (typeof owner.createdAt === 'number')
-      return Date.now() - owner.createdAt > 5 * 60_000;
-  } catch {
-    // Fall back to the lock directory timestamp when owner metadata is unusable.
-  }
-  try {
-    return Date.now() - statSync(lockRoot).mtimeMs > 5 * 60_000;
+    renameSync(lockRoot, quarantine);
+    const quarantinedOwnerPath = resolve(quarantine, 'owner.json');
+    if (
+      readFileSync(quarantinedOwnerPath, 'utf8') !== expectedOwnerContent ||
+      readdirSync(quarantine).length !== 1
+    ) {
+      if (!existsSync(lockRoot)) {
+        try {
+          renameSync(quarantine, lockRoot);
+        } catch {
+          // Keep the quarantine when the original path changed concurrently.
+        }
+      }
+      return false;
+    }
+    rmSync(quarantinedOwnerPath, { force: true });
+    rmdirSync(quarantine);
+    return true;
   } catch {
     return false;
   }

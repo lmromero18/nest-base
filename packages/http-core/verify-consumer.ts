@@ -1,5 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -11,6 +18,60 @@ const root = join(
 );
 const artifacts = join(root, 'artifacts');
 const consumer = join(root, 'consumer');
+
+export function hasRepositorySourceImport(source: string): boolean {
+  return /(?:from|import\s*\(|require\s*\()\s*["'](?:src[\\/]|[^"']*[\\/]src[\\/])/m.test(
+    source,
+  );
+}
+
+export function assertHttpCoreConsumerProvenance(consumerRoot: string): void {
+  const sourceRoot = join(consumerRoot, 'src');
+  for (const entry of readdirSync(sourceRoot)) {
+    const sourcePath = join(sourceRoot, entry);
+    if (
+      entry.endsWith('.ts') &&
+      hasRepositorySourceImport(readFileSync(sourcePath, 'utf8'))
+    )
+      throw new Error(
+        'Independent HTTP-core consumer source imports repository source',
+      );
+  }
+  if (
+    !existsSync(
+      join(consumerRoot, 'node_modules/@nest-base/http-core/package.json'),
+    )
+  )
+    throw new Error(
+      'Independent HTTP-core consumer did not install the packed artifact',
+    );
+}
+
+export function createHttpCoreConsumerManifest(tarball: string) {
+  return {
+    name: 'nest-base-http-core-independent-consumer',
+    private: true,
+    type: 'module',
+    dependencies: {
+      '@nest-base/core': '0.1.0',
+      '@nest-base/http-core': `file:${tarball}`,
+      '@nestjs/common': '>=11.0.0 <12.0.0',
+      '@nestjs/swagger': '>=11.0.0 <12.0.0',
+      'reflect-metadata': '>=0.2.0 <0.3.0',
+      typeorm: '>=0.3.28 <0.4.0',
+    },
+  };
+}
+
+export function getHttpCoreConsumerCommands(compiler: string): string[][] {
+  return [
+    ['bun', compiler, '-p', 'tsconfig.json'],
+    ['node', 'dist/index.js'],
+    ['node', 'cjs-check.cjs'],
+    ['bun', 'dist/index.js'],
+    ['bun', 'cjs-check.cjs'],
+  ];
+}
 
 function run(command: string[], cwd: string): void {
   const executable =
@@ -38,23 +99,7 @@ function main(): void {
 
   writeFileSync(
     join(consumer, 'package.json'),
-    `${JSON.stringify(
-      {
-        name: 'nest-base-http-core-independent-consumer',
-        private: true,
-        type: 'module',
-        dependencies: {
-          '@nest-base/core': '0.1.0',
-          '@nest-base/http-core': `file:${httpTarball}`,
-          '@nestjs/common': '>=11.0.0 <12.0.0',
-          '@nestjs/swagger': '>=11.0.0 <12.0.0',
-          'reflect-metadata': '>=0.2.0 <0.3.0',
-          typeorm: '>=0.3.28 <0.4.0',
-        },
-      },
-      null,
-      2,
-    )}\n`,
+    `${JSON.stringify(createHttpCoreConsumerManifest(httpTarball), null, 2)}\n`,
   );
   writeFileSync(
     join(consumer, 'tsconfig.json'),
@@ -93,19 +138,11 @@ console.log('independent http-core consumer ESM API passed');
 
   try {
     run(['bun', 'install'], consumer);
-    run(
-      [
-        'bun',
-        resolve(repositoryRoot, 'node_modules/typescript/bin/tsc'),
-        '-p',
-        'tsconfig.json',
-      ],
-      consumer,
-    );
-    run(['node', 'dist/index.js'], consumer);
-    run(['node', 'cjs-check.cjs'], consumer);
-    run(['bun', 'dist/index.js'], consumer);
-    run(['bun', 'cjs-check.cjs'], consumer);
+    for (const command of getHttpCoreConsumerCommands(
+      resolve(repositoryRoot, 'node_modules/typescript/bin/tsc'),
+    ))
+      run(command, consumer);
+    assertHttpCoreConsumerProvenance(consumer);
     console.log(`verify:http-core:consumer passed (${consumer})`);
   } finally {
     rmSync(root, {
@@ -117,4 +154,4 @@ console.log('independent http-core consumer ESM API passed');
   }
 }
 
-main();
+if (import.meta.main) main();
