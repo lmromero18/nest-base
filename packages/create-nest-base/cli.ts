@@ -1,23 +1,23 @@
-import { inferSource, resolveCapabilities } from './registry';
-import { resolveArtifact } from './artifact-gate';
+import { inferSource, resolveCapabilities } from './registry.js';
+import { resolveArtifact } from './artifact-gate.js';
 import {
   defaultFileSystem,
   preflightTarget,
   type TargetFileSystem,
-} from './preflight';
+} from './preflight.js';
 import {
   buildScaffoldCommand,
   verifyVanillaScaffold,
   type ScaffoldCommand,
   type ScaffoldFileSystem,
-} from './scaffold';
+} from './scaffold.js';
 import type {
   ArtifactLoaders,
   ArtifactRecord,
   IndependentConsumerGate,
-} from './artifact-gate';
-import { confirmPlan, normalizeInteractiveInput, renderPreview } from './ux';
-import type { CiInput, NormalizedPlan, ParsedCliArgs } from './types';
+} from './artifact-gate.js';
+import { confirmPlan, normalizeInteractiveInput, renderPreview } from './ux.js';
+import type { CiInput, NormalizedPlan, ParsedCliArgs } from './types.js';
 import { dirname, basename } from 'node:path';
 import { readFileSync } from 'node:fs';
 import {
@@ -26,7 +26,7 @@ import {
   createMetadataFileSystem,
   rollbackOwnedWrites,
   type MetadataFileSystem,
-} from './metadata';
+} from './metadata.js';
 
 export interface CliPipelineDependencies {
   fileSystem: TargetFileSystem;
