@@ -39,6 +39,28 @@ describe('create-nest-base interactive UX', () => {
     expect(renderPreview(plan)).toContain('./demo');
   });
 
+  it('assigns the published core tarball integrity to the default capability', () => {
+    const plan = normalizeInteractiveInput({ target: 'C:\\demo' });
+
+    expect(plan.capabilities[0]).toMatchObject({
+      package: '@nest-base/core',
+      version: '0.1.0',
+      source: { kind: 'registry', spec: '@nest-base/core@0.1.0' },
+      integrity:
+        'sha512-wjDf/s0C9qVaXHhtwJV38Dr9rZuxLWFxuqT1gPgK5WJ33zJw2TEixpV22EcPn1iY8YI3ErgGOzktv8ywtqty/g==',
+    });
+  });
+
+  it('does not reuse the default integrity for an explicit core artifact', () => {
+    const plan = normalizeInteractiveInput({
+      target: 'C:\\demo',
+      coreVersion: '1.2.3',
+      coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
+    });
+
+    expect(plan.capabilities[0].integrity).toBe('sha512-pending');
+  });
+
   it('accepts and cancels confirmation explicitly', () => {
     const plan = normalizeInteractiveInput({ target: './demo' });
 

@@ -181,6 +181,45 @@ describe('create-nest-base CLI pipeline', () => {
     ).rejects.toThrow('unavailable');
   });
 
+  it('takes the default interactive plan through the artifact gate', async () => {
+    const calls: string[] = [];
+
+    await expect(
+      runCli(
+        {
+          ci: false,
+          dryRun: false,
+          yes: false,
+          help: false,
+          target: 'C:\\work\\default-demo',
+        },
+        {
+          fileSystem: {
+            exists: (path) => path === 'C:\\work',
+            isDirectory: () => true,
+            entries: () => [],
+            canWrite: () => true,
+          },
+          artifactLoaders: {
+            registry: () => {
+              calls.push('artifact-gate');
+              return Promise.resolve(undefined);
+            },
+          },
+          confirm: () => Promise.resolve(),
+          scaffold: () => Promise.resolve(),
+          scaffoldFileSystem: {
+            readPackage: () => ({ name: 'default-demo' }),
+            isDirectory: () => true,
+          },
+          install: () => Promise.resolve(),
+        },
+      ),
+    ).rejects.toThrow('unavailable');
+
+    expect(calls).toEqual(['artifact-gate']);
+  });
+
   it('refuses before confirmation and writes when the target is not writable', async () => {
     const calls: string[] = [];
     let message = 'resolved';

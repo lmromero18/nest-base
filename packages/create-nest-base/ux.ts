@@ -1,5 +1,6 @@
 import {
   DEFAULT_WIZARD_VERSION,
+  DEFAULT_CORE_INTEGRITY,
   REGISTRY_REVISION,
   getCapability,
   makeResolvedCapability,
@@ -78,12 +79,13 @@ export function normalizeInteractiveInput(
       descriptor.package,
       version,
     );
-    return makeResolvedCapability(
-      descriptor,
-      version,
-      source,
-      isLogger ? input.loggerIntegrity : input.coreIntegrity,
-    );
+    const integrity = isLogger
+      ? input.loggerIntegrity
+      : (input.coreIntegrity ??
+        (input.coreVersion === undefined && input.coreSource === undefined
+          ? DEFAULT_CORE_INTEGRITY
+          : undefined));
+    return makeResolvedCapability(descriptor, version, source, integrity);
   });
 
   return {

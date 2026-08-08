@@ -10,6 +10,8 @@ export const REGISTRY_REVISION = '2026-07-27';
 export const DEFAULT_WIZARD_VERSION = '0.1.0';
 const DEFAULT_CORE_VERSION = '0.1.0';
 const DEFAULT_LOGGER_VERSION = '1.0.0';
+export const DEFAULT_CORE_INTEGRITY =
+  'sha512-wjDf/s0C9qVaXHhtwJV38Dr9rZuxLWFxuqT1gPgK5WJ33zJw2TEixpV22EcPn1iY8YI3ErgGOzktv8ywtqty/g==';
 
 const futureReason =
   'Reserved for a later integration slice; no installable artifact or compatibility gate exists yet.';
