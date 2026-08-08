@@ -1,6 +1,10 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'bun:test';
+import { resolveArtifact } from '../../../packages/create-nest-base/artifact-gate';
 import {
   CAPABILITY_REGISTRY,
+  createRegistryArtifactLoader,
+  inspectPackedArtifact,
   resolveCapabilities,
   resolveSource,
 } from '../../../packages/create-nest-base/registry';
@@ -64,4 +68,116 @@ describe('create-nest-base capability registry', () => {
       spec: 'https://example.test/core.tgz',
     });
   });
+
+  it('loads and inspects the exact registry tarball without following redirects', async () => {
+    const tarball = await gzipTarball({
+      name: '@nest-base/core',
+      version: '0.1.0',
+    });
+    const calls: Array<{ url: string; redirect: RequestRedirect }> = [];
+    const loader = createRegistryArtifactLoader(async (input, init) => {
+      const url = String(input);
+      calls.push({ url, redirect: init?.redirect ?? 'follow' });
+      if (url === 'https://registry.npmjs.org/%40nest-base%2Fcore')
+        return Response.json({
+          name: '@nest-base/core',
+          versions: {
+            '0.1.0': {
+              name: '@nest-base/core',
+              version: '0.1.0',
+              dist: {
+                tarball:
+                  'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz',
+              },
+            },
+          },
+        });
+      if (url === 'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz')
+        return new Response(tarball.buffer as ArrayBuffer);
+      return new Response(null, { status: 404 });
+    });
+
+    const artifact = await loader('@nest-base/core@0.1.0');
+    if (!artifact) throw new Error('Mock registry artifact was unavailable.');
+
+    expect(artifact?.bytes).toEqual(tarball);
+    expect(inspectPackedArtifact(artifact!)).toEqual({
+      package: '@nest-base/core',
+      version: '0.1.0',
+    });
+    const integrity = `sha512-${createHash('sha512').update(tarball).digest('base64')}`;
+    await expect(
+      resolveArtifact(
+        {
+          kind: 'registry',
+          spec: '@nest-base/core@0.1.0',
+          package: '@nest-base/core',
+          version: '0.1.0',
+          integrity,
+        },
+        { registry: loader, inspect: inspectPackedArtifact },
+        { verify: () => Promise.resolve() },
+      ),
+    ).resolves.toEqual(artifact);
+    expect(calls).toEqual([
+      {
+        url: 'https://registry.npmjs.org/%40nest-base%2Fcore',
+        redirect: 'manual',
+      },
+      {
+        url: 'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz',
+        redirect: 'manual',
+      },
+      {
+        url: 'https://registry.npmjs.org/%40nest-base%2Fcore',
+        redirect: 'manual',
+      },
+      {
+        url: 'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz',
+        redirect: 'manual',
+      },
+    ]);
+  });
+
+  it('returns a redirected artifact marker so the existing gate rejects it', async () => {
+    const loader = createRegistryArtifactLoader(
+      async () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://evil.test' },
+        }),
+    );
+
+    const artifact = await loader('@nest-base/core@0.1.0');
+
+    expect(artifact?.redirected).toBe(true);
+  });
 });
+
+async function gzipTarball(
+  packageJson: Record<string, string>,
+): Promise<Uint8Array> {
+  const content = new TextEncoder().encode(JSON.stringify(packageJson));
+  const header = new Uint8Array(512);
+  header.set(new TextEncoder().encode('package/package.json'));
+  header.set(
+    new TextEncoder().encode(
+      `${content.length.toString(8).padStart(11, '0')}\0`,
+    ),
+    124,
+  );
+  header[156] = '0'.charCodeAt(0);
+  header.fill(32, 148, 156);
+  const checksum = header.reduce((sum, byte) => sum + byte, 0);
+  header.set(
+    new TextEncoder().encode(`${checksum.toString(8).padStart(6, '0')}\0 `),
+    148,
+  );
+  const tar = new Uint8Array(1024 + Math.ceil(content.length / 512) * 512);
+  tar.set(header);
+  tar.set(content, 512);
+  const stream = new Blob([tar.buffer as ArrayBuffer])
+    .stream()
+    .pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}

@@ -4,7 +4,8 @@ import type {
   ResolvedCapability,
   Source,
   SourceKind,
-} from './types';
+} from './types.js';
+import type { ArtifactLoaders, ArtifactRecord } from './artifact-gate.js';
 
 export const REGISTRY_REVISION = '2026-07-27';
 export const DEFAULT_WIZARD_VERSION = '0.1.0';
@@ -12,6 +13,127 @@ const DEFAULT_CORE_VERSION = '0.1.0';
 const DEFAULT_LOGGER_VERSION = '1.0.0';
 export const DEFAULT_CORE_INTEGRITY =
   'sha512-wjDf/s0C9qVaXHhtwJV38Dr9rZuxLWFxuqT1gPgK5WJ33zJw2TEixpV22EcPn1iY8YI3ErgGOzktv8ywtqty/g==';
+
+export type RegistryFetch = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
+export function createRegistryArtifactLoader(
+  fetcher: RegistryFetch = fetch,
+): NonNullable<ArtifactLoaders['registry']> {
+  return async (spec): Promise<ArtifactRecord | undefined> => {
+    const separator = spec.lastIndexOf('@');
+    if (separator <= 0 || separator === spec.length - 1) return undefined;
+    const packageName = spec.slice(0, separator);
+    const version = spec.slice(separator + 1);
+    const metadataResponse = await fetcher(
+      `https://registry.npmjs.org/${encodeURIComponent(packageName)}`,
+      { redirect: 'manual' },
+    );
+    if (isRedirect(metadataResponse))
+      return { bytes: new Uint8Array(), redirected: true };
+    if (!metadataResponse.ok) return undefined;
+
+    const metadata: unknown = await metadataResponse.json();
+    const versionMetadata = readVersionMetadata(metadata, packageName, version);
+    if (!versionMetadata) return undefined;
+    const tarballResponse = await fetcher(versionMetadata.tarball, {
+      redirect: 'manual',
+    });
+    if (isRedirect(tarballResponse))
+      return { bytes: new Uint8Array(), redirected: true };
+    if (!tarballResponse.ok) return undefined;
+    return { bytes: new Uint8Array(await tarballResponse.arrayBuffer()) };
+  };
+}
+
+export function inspectPackedArtifact(artifact: ArtifactRecord): {
+  package: string;
+  version: string;
+} {
+  const tar = Bun.gunzipSync(
+    new Uint8Array(artifact.bytes).buffer as ArrayBuffer,
+  );
+  const packageJson = readTarPackageJson(tar);
+  if (
+    packageJson === undefined ||
+    typeof packageJson.name !== 'string' ||
+    typeof packageJson.version !== 'string'
+  )
+    throw new Error('Packed artifact package identity is unavailable.');
+  return { package: packageJson.name, version: packageJson.version };
+}
+
+function readTarPackageJson(
+  tar: Uint8Array,
+): Record<string, unknown> | undefined {
+  for (let offset = 0; offset + 512 <= tar.length;) {
+    const name = readTarString(tar, offset, 100);
+    if (!name) return undefined;
+    const size = Number.parseInt(readTarString(tar, offset + 124, 12), 8);
+    if (
+      !Number.isSafeInteger(size) ||
+      size < 0 ||
+      offset + 512 + size > tar.length
+    )
+      return undefined;
+    if (name === 'package/package.json') {
+      try {
+        const content = new TextDecoder().decode(
+          tar.slice(offset + 512, offset + 512 + size),
+        );
+        const parsed: unknown = JSON.parse(content);
+        return parsed !== null && typeof parsed === 'object'
+          ? (parsed as Record<string, unknown>)
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  return undefined;
+}
+
+function readTarString(
+  bytes: Uint8Array,
+  offset: number,
+  length: number,
+): string {
+  return new TextDecoder()
+    .decode(bytes.slice(offset, offset + length))
+    .replace(/\0.*$/, '')
+    .trim();
+}
+
+function readVersionMetadata(
+  metadata: unknown,
+  packageName: string,
+  version: string,
+): { tarball: string } | undefined {
+  if (metadata === null || typeof metadata !== 'object') return undefined;
+  const record = metadata as Record<string, unknown>;
+  const versions = record.versions;
+  if (versions === null || typeof versions !== 'object') return undefined;
+  const entry = (versions as Record<string, unknown>)[version];
+  if (entry === null || typeof entry !== 'object') return undefined;
+  const versionRecord = entry as Record<string, unknown>;
+  if (versionRecord.name !== packageName || versionRecord.version !== version)
+    return undefined;
+  const dist = versionRecord.dist;
+  if (dist === null || typeof dist !== 'object') return undefined;
+  const tarball = (dist as Record<string, unknown>).tarball;
+  return typeof tarball === 'string' && /^https?:\/\/[^\s]+$/.test(tarball)
+    ? { tarball }
+    : undefined;
+}
+
+function isRedirect(response: Response): boolean {
+  return (
+    response.redirected || (response.status >= 300 && response.status < 400)
+  );
+}
 
 const futureReason =
   'Reserved for a later integration slice; no installable artifact or compatibility gate exists yet.';

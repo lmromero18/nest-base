@@ -1,4 +1,9 @@
-import { inferSource, resolveCapabilities } from './registry.js';
+import {
+  createRegistryArtifactLoader,
+  inferSource,
+  inspectPackedArtifact,
+  resolveCapabilities,
+} from './registry.js';
 import { resolveArtifact } from './artifact-gate.js';
 import {
   defaultFileSystem,
@@ -290,9 +295,10 @@ export function createDefaultPipelineDependencies(
   return {
     fileSystem: defaultFileSystem,
     artifactLoaders: {
-      registry: () => Promise.resolve(undefined),
+      registry: createRegistryArtifactLoader(),
       file: () => Promise.resolve(undefined),
       url: () => Promise.resolve(undefined),
+      inspect: inspectPackedArtifact,
     },
     confirm: () => {
       if (confirmed) return Promise.resolve();
