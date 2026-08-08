@@ -6,12 +6,12 @@ import {
   makeResolvedCapability,
   resolveCapabilities,
   resolveSource,
-} from './registry';
+} from './registry.js';
 import type {
   CapabilitySourceInput,
   InteractiveInput,
   NormalizedPlan,
-} from './types';
+} from './types.js';
 
 export interface InteractiveCard {
   id: string;

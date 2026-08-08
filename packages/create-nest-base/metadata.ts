@@ -9,9 +9,9 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { getCapability } from './registry';
-import type { ArtifactRecord } from './artifact-gate';
-import type { NormalizedPlan, ResolvedCapability } from './types';
+import { getCapability } from './registry.js';
+import type { ArtifactRecord } from './artifact-gate.js';
+import type { NormalizedPlan, ResolvedCapability } from './types.js';
 
 const MANIFEST_PATH = '.nest-base/manifest.json';
 const MAX_COMPENSATION_WRITES = 32;

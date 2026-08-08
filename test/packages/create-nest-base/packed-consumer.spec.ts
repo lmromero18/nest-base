@@ -38,7 +38,7 @@ function packInto(directory: string): string {
   const archive = report[0]?.filename;
 
   expect(archive).toMatch(/\.tgz$/);
-  return resolve(directory, archive as string);
+  return resolve(directory, archive);
 }
 
 function createConsumer(): string {
@@ -121,7 +121,7 @@ describe('create-nest-base packed consumer', () => {
       const help = runPackedHelp(workspace);
 
       expect(help.exitCode).not.toBe(0);
-      expect(output(help)).toContain("'./cli'");
+      expect(output(help)).toContain("'./cli.js'");
       expect(output(help)).not.toContain(packageRoot);
     });
   });

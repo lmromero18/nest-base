@@ -75,38 +75,40 @@ describe('create-nest-base capability registry', () => {
       version: '0.1.0',
     });
     const calls: Array<{ url: string; redirect: RequestRedirect }> = [];
-    const loader = createRegistryArtifactLoader(async (input, init) => {
+    const loader = createRegistryArtifactLoader((input, init) => {
       const url = String(input);
       calls.push({ url, redirect: init?.redirect ?? 'follow' });
       if (url === 'https://registry.npmjs.org/%40nest-base%2Fcore')
-        return Response.json({
-          name: '@nest-base/core',
-          versions: {
-            '0.1.0': {
-              name: '@nest-base/core',
-              version: '0.1.0',
-              dist: {
-                tarball:
-                  'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz',
+        return Promise.resolve(
+          Response.json({
+            name: '@nest-base/core',
+            versions: {
+              '0.1.0': {
+                name: '@nest-base/core',
+                version: '0.1.0',
+                dist: {
+                  tarball:
+                    'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz',
+                },
               },
             },
-          },
-        });
+          }),
+        );
       if (url === 'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz')
-        return new Response(tarball.buffer as ArrayBuffer);
-      return new Response(null, { status: 404 });
+        return Promise.resolve(new Response(new Uint8Array(tarball)));
+      return Promise.resolve(new Response(null, { status: 404 }));
     });
 
     const artifact = await loader('@nest-base/core@0.1.0');
     if (!artifact) throw new Error('Mock registry artifact was unavailable.');
 
     expect(artifact?.bytes).toEqual(tarball);
-    expect(inspectPackedArtifact(artifact!)).toEqual({
+    expect(inspectPackedArtifact(artifact)).toEqual({
       package: '@nest-base/core',
       version: '0.1.0',
     });
     const integrity = `sha512-${createHash('sha512').update(tarball).digest('base64')}`;
-    await expect(
+    expect(
       resolveArtifact(
         {
           kind: 'registry',
@@ -140,12 +142,13 @@ describe('create-nest-base capability registry', () => {
   });
 
   it('returns a redirected artifact marker so the existing gate rejects it', async () => {
-    const loader = createRegistryArtifactLoader(
-      async () =>
+    const loader = createRegistryArtifactLoader(() =>
+      Promise.resolve(
         new Response(null, {
           status: 302,
           headers: { location: 'https://evil.test' },
         }),
+      ),
     );
 
     const artifact = await loader('@nest-base/core@0.1.0');
@@ -176,7 +179,7 @@ async function gzipTarball(
   const tar = new Uint8Array(1024 + Math.ceil(content.length / 512) * 512);
   tar.set(header);
   tar.set(content, 512);
-  const stream = new Blob([tar.buffer as ArrayBuffer])
+  const stream = new Blob([tar.buffer])
     .stream()
     .pipeThrough(new CompressionStream('gzip'));
   return new Uint8Array(await new Response(stream).arrayBuffer());

@@ -4,17 +4,17 @@ import {
   formatHelp,
   parseCliArgs,
   runCliPipeline,
-} from './cli';
+} from './cli.js';
 
-export * from './cli';
-export * from './artifact-gate';
-export * from './install';
-export * from './metadata';
-export * from './preflight';
-export * from './registry';
-export * from './scaffold';
-export * from './types';
-export * from './ux';
+export * from './cli.js';
+export * from './artifact-gate.js';
+export * from './install.js';
+export * from './metadata.js';
+export * from './preflight.js';
+export * from './registry.js';
+export * from './scaffold.js';
+export * from './types.js';
+export * from './ux.js';
 
 export async function main(
   argv: readonly string[] = Bun.argv.slice(2),

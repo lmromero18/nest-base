@@ -181,10 +181,10 @@ describe('create-nest-base CLI pipeline', () => {
     ).rejects.toThrow('unavailable');
   });
 
-  it('takes the default interactive plan through the artifact gate', async () => {
+  it('takes the default interactive plan through the artifact gate', () => {
     const calls: string[] = [];
 
-    await expect(
+    expect(
       runCli(
         {
           ci: false,

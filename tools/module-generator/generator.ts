@@ -392,7 +392,6 @@ function createRegistrationFileSystem(cwd: string): RegistrationFileSystem {
             `Registration root changed before replacement: ${path}`,
           );
         }
-        const replacement = new Uint8Array(readFileSync(resolve(stagedPath)));
         const unchanged = readDescriptorSync(descriptor);
         if (
           sha256(unchanged) !== expected.hash ||

@@ -19,13 +19,6 @@ const Controller = CrudControllerFactory<Notification>({
 
 class TestController extends Controller {}
 
-class InvalidController extends Controller {
-  constructor(service: string) {
-    // @ts-expect-error The generated controller requires a BaseService<T>.
-    super(service);
-  }
-}
-
 const createService = (overrides: Record<string, unknown> = {}) =>
   ({
     find: (query: Record<string, unknown>) =>

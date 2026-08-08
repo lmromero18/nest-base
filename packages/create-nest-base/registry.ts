@@ -52,9 +52,7 @@ export function inspectPackedArtifact(artifact: ArtifactRecord): {
   package: string;
   version: string;
 } {
-  const tar = Bun.gunzipSync(
-    new Uint8Array(artifact.bytes).buffer as ArrayBuffer,
-  );
+  const tar = Bun.gunzipSync(new Uint8Array(artifact.bytes).buffer);
   const packageJson = readTarPackageJson(tar);
   if (
     packageJson === undefined ||
