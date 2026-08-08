@@ -2,10 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'bun:test';
 
-const packageRoot = resolve(
-  import.meta.dir,
-  '../../../packages/create-nest-base',
-);
+const packageRoot = resolve(__dirname, '../../../packages/create-nest-base');
 const manifestPath = resolve(packageRoot, 'package.json');
 
 const expectedFiles = [

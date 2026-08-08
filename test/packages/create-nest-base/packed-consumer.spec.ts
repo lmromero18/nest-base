@@ -3,10 +3,7 @@ import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
 import { describe, expect, it } from 'bun:test';
 
-const packageRoot = resolve(
-  import.meta.dir,
-  '../../../packages/create-nest-base',
-);
+const packageRoot = resolve(__dirname, '../../../packages/create-nest-base');
 const bunExecutable = process.execPath;
 const npmExecutable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
