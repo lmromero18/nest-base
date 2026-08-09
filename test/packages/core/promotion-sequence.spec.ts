@@ -512,6 +512,35 @@ describe.serial('promotion sequence', () => {
     }
   });
 
+  it('retries when Linux reports a non-empty lock target during publication', () => {
+    const lockPath = resolve(
+      tmpdir(),
+      `nest-base-core-lock-enotempty-${randomUUID()}`,
+    );
+    let publicationAttempts = 0;
+
+    try {
+      const token = acquireCoreOutputLock({
+        lockPath,
+        wait: () => undefined,
+        beforePublish: () => {
+          if (publicationAttempts++ > 0) return;
+          mkdirSync(lockPath, { recursive: true });
+          writeFileSync(
+            resolve(lockPath, 'owner.json'),
+            JSON.stringify({ pid: 2_147_483_647, token: 'dead-owner' }),
+          );
+        },
+      });
+
+      releaseCoreOutputLock(token, lockPath);
+      expect(publicationAttempts).toBe(2);
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      rmSync(lockPath, { recursive: true, force: true });
+    }
+  });
+
   it('bounds child execution and retains command diagnostics', () => {
     let receivedTimeout: number | undefined;
     const childError = Object.assign(new Error('child timed out'), {
@@ -1241,8 +1270,8 @@ describe.serial('promotion sequence', () => {
   });
 
   it('uses case-insensitive containment for Windows repository paths', () => {
-    const repositoryRoot = resolve(process.cwd(), 'packages');
-    const differentlyCasedRunRoot = resolve(process.cwd(), 'PACKAGES', 'run');
+    const repositoryRoot = 'C:\\repo\\packages';
+    const differentlyCasedRunRoot = 'C:\\repo\\PACKAGES\\run';
 
     expect(
       isPromotionPathWithinOrEqual(

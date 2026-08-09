@@ -200,7 +200,7 @@ function acquireLock(options: CoreLockOptions): string {
         attemptedPublish &&
         error instanceof Error &&
         'code' in error &&
-        error.code === 'EPERM';
+        (error.code === 'EPERM' || error.code === 'ENOTEMPTY');
       if (
         (!isPublishContention && !(error instanceof Error)) ||
         !('code' in error) ||
