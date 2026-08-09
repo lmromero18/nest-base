@@ -26,6 +26,10 @@ export function createConsumerManifest(
   capabilityId = 'core-crud',
   dependencyTarballs?: ReadonlyMap<string, string>,
 ) {
+  if (capabilityId === 'http-core' && !dependencyTarballs?.has('core-crud'))
+    throw new Error(
+      'Packed HTTP-core consumer requires a packed core dependency.',
+    );
   const fileSpec = pathToFileURL(tarball).href.replace(
     /^file:\/\/\/([A-Za-z]:\/)/,
     'file://$1',
@@ -49,6 +53,39 @@ export function createConsumerManifest(
       ...consumerPeerVersions,
     },
   };
+}
+
+export function createConsumerBuildCommands(capabilityId: string): string[][] {
+  const external =
+    capabilityId === 'http-core'
+      ? ['--external', '@nest-base/http-core', '--external', '@nest-base/core']
+      : ['--external', '@nest-base/core'];
+  return [
+    [
+      'build',
+      'src/index.ts',
+      '--outfile',
+      'dist/esm/index.js',
+      '--target',
+      'node',
+      '--format',
+      'esm',
+      ...external,
+    ],
+    ['dist/esm/index.js'],
+    [
+      'build',
+      'src/index.ts',
+      '--outfile',
+      'dist/cjs/index.cjs',
+      '--target',
+      'node',
+      '--format',
+      'cjs',
+      ...external,
+    ],
+    ['dist/cjs/index.cjs'],
+  ];
 }
 
 export function createConsumerInstallCommand(): string[] {
@@ -129,22 +166,8 @@ export async function verifyIndependentConsumer(
     );
 
     run(createConsumerInstallCommand(), consumer);
-    run(
-      [
-        'build',
-        'src/index.ts',
-        '--outfile',
-        'dist/index.js',
-        '--target',
-        'node',
-        '--external',
-        capabilityId === 'http-core'
-          ? '@nest-base/http-core'
-          : '@nest-base/core',
-      ],
-      consumer,
-    );
-    run(['dist/index.js'], consumer);
+    for (const command of createConsumerBuildCommands(capabilityId))
+      run(command, consumer);
     assertInstalledArtifact(consumer, identity, capabilityId);
   } finally {
     rmSync(root, {

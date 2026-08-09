@@ -8,6 +8,7 @@ import {
   resolveCapabilities,
   resolveSource,
   assertHttpCoreReleaseEvidence,
+  bindHttpCoreReleaseEvidence,
 } from '../../../packages/create-nest-base/registry';
 
 describe('create-nest-base capability registry', () => {
@@ -43,16 +44,27 @@ describe('create-nest-base capability registry', () => {
       kind: 'registry',
       spec: '@nest-base/http-core@0.1.0',
     });
-    expect(httpCore?.defaultIntegrity).toBe(
-      'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
-    );
+    expect(httpCore?.defaultIntegrity).toBeUndefined();
     expect(httpCore?.compatibility).toContain('NestJS 11');
-    expect(assertHttpCoreReleaseEvidence()).toEqual({
+    const evidence = {
       package: '@nest-base/http-core',
       version: '0.1.0',
       integrity:
         'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
-    });
+      published: {
+        package: '@nest-base/http-core',
+        version: '0.1.0',
+        integrity:
+          'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
+      },
+      audit: { command: 'bun run audit:http-core:tarball', passed: true },
+      consumer: {
+        command: 'bun run verify:http-core:consumer',
+        passed: true,
+        modes: ['esm', 'cjs'],
+      },
+    } as const;
+    expect(assertHttpCoreReleaseEvidence(evidence)).toEqual(evidence);
 
     for (const entry of CAPABILITY_REGISTRY.slice(3)) {
       expect(entry.status).toBe('unavailable');
@@ -63,6 +75,37 @@ describe('create-nest-base capability registry', () => {
       expect(entry.conflicts.length).toBeGreaterThan(0);
       expect(entry.manualSteps.length).toBeGreaterThan(0);
     }
+  });
+
+  it('blocks stale or incomplete HTTP-core release evidence', () => {
+    const evidence = {
+      package: '@nest-base/http-core',
+      version: '0.1.0',
+      integrity:
+        'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
+      published: {
+        package: '@nest-base/http-core',
+        version: '0.1.0',
+        integrity:
+          'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
+      },
+      audit: { command: 'bun run audit:http-core:tarball', passed: true },
+      consumer: {
+        command: 'bun run verify:http-core:consumer',
+        passed: true,
+        modes: ['esm', 'cjs'],
+      },
+    } as const;
+    expect(bindHttpCoreReleaseEvidence(evidence)).toEqual(evidence);
+    expect(() =>
+      bindHttpCoreReleaseEvidence({ ...evidence, version: '0.1.1' }),
+    ).toThrow('mismatch');
+    expect(() =>
+      bindHttpCoreReleaseEvidence({
+        ...evidence,
+        consumer: { ...evidence.consumer, modes: ['esm'] },
+      }),
+    ).toThrow('consumer');
   });
 
   it('fails closed for unknown and unavailable selections before resolution', () => {

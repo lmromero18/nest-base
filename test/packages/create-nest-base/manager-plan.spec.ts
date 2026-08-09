@@ -17,7 +17,8 @@ import {
 const artifact = {
   coreSource: { kind: 'registry' as const, spec: '@nest-base/core@1.2.3' },
   coreVersion: '1.2.3',
-  coreIntegrity: 'sha512-core' as const,
+  coreIntegrity: ('sha512-' + 'A'.repeat(88)) as `sha512-${string}`,
+  selections: ['core-crud'],
 };
 
 describe('create-nest-base manager plan', () => {
@@ -39,7 +40,7 @@ describe('create-nest-base manager plan', () => {
       packageManager: 'pnpm',
       coreVersion: '1.2.3',
       coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
-      coreIntegrity: 'sha512-core',
+      coreIntegrity: artifact.coreIntegrity,
     });
 
     const preview = renderPreview(plan);
@@ -49,7 +50,7 @@ describe('create-nest-base manager plan', () => {
     expect(preview).toContain('Install command: pnpm install');
     expect(preview).toContain('Source: registry @nest-base/core@1.2.3');
     expect(preview).toContain('Version: 1.2.3');
-    expect(preview).toContain('Integrity: sha512-core');
+    expect(preview).toContain(`Integrity: ${artifact.coreIntegrity}`);
     expect(preview).toContain(
       'Action: confirm to create files and install packages',
     );

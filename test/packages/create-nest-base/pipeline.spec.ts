@@ -149,6 +149,33 @@ describe('create-nest-base CLI pipeline', () => {
     expect(files[packagePath]).toBe('changed by install');
   });
 
+  it('compensates scaffold ownership when verification fails after creation', () => {
+    const calls: string[] = [];
+    return expect(
+      runCliPipeline(
+        args,
+        dependencies({
+          scaffold: () => {
+            calls.push('scaffold');
+            return Promise.resolve();
+          },
+          scaffoldFileSystem: {
+            readPackage: () => {
+              throw new Error('invalid scaffold');
+            },
+            isDirectory: () => true,
+          },
+          rollbackScaffold: (path) => {
+            calls.push(`rollback:${path}`);
+            return { leftovers: [] };
+          },
+          metadataFileSystem: undefined,
+        }),
+      ),
+    ).rejects.toThrow('Rollback completed');
+    expect(calls).toEqual(['scaffold', `rollback:${target}`]);
+  });
+
   it('retries a preserved scaffold without invoking scaffold again', async () => {
     const calls: string[] = [];
     await runCliPipeline(

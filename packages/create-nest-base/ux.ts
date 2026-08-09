@@ -1,7 +1,7 @@
 import {
   DEFAULT_WIZARD_VERSION,
   DEFAULT_CORE_INTEGRITY,
-  DEFAULT_HTTP_CORE_INTEGRITY,
+  assertHttpCoreReleaseEvidence,
   REGISTRY_REVISION,
   getCapability,
   makeResolvedCapability,
@@ -83,17 +83,32 @@ export function normalizeInteractiveInput(
     throw new Error('Package manager must be npm, pnpm, yarn, or bun.');
   const selected = input.selections ?? [
     'core-crud',
-    'http-core',
+    ...(input.httpCoreReleaseEvidence ? ['http-core'] : []),
     ...(input.logger ? ['logger'] : []),
   ];
   const descriptors = resolveCapabilities(selected);
   const capabilities = descriptors.map((descriptor) => {
     const isLogger = descriptor.id === 'logger';
     const isHttpCore = descriptor.id === 'http-core';
+    const releaseEvidence =
+      isHttpCore && input.httpCoreReleaseEvidence
+        ? assertHttpCoreReleaseEvidence(input.httpCoreReleaseEvidence)
+        : undefined;
+    if (
+      isHttpCore &&
+      !releaseEvidence &&
+      input.httpCoreVersion === undefined &&
+      input.httpCoreSource === undefined
+    )
+      throw new Error(
+        'HTTP-core recommended default requires bound release evidence.',
+      );
     const version = isLogger
       ? (input.loggerVersion ?? descriptor.defaultVersion)
       : isHttpCore
-        ? (input.httpCoreVersion ?? descriptor.defaultVersion)
+        ? (input.httpCoreVersion ??
+          releaseEvidence?.published.version ??
+          descriptor.defaultVersion)
         : (input.coreVersion ?? descriptor.defaultVersion);
     const source = sourceOrDefault(
       isLogger
@@ -110,7 +125,7 @@ export function normalizeInteractiveInput(
         ? (input.httpCoreIntegrity ??
           (input.httpCoreVersion === undefined &&
           input.httpCoreSource === undefined
-            ? DEFAULT_HTTP_CORE_INTEGRITY
+            ? releaseEvidence?.published.integrity
             : undefined))
         : (input.coreIntegrity ??
           (input.coreVersion === undefined && input.coreSource === undefined

@@ -30,7 +30,7 @@ import {
   type ParsedCliArgs,
 } from './types.js';
 import { dirname, basename } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import {
   applyOwnedWrites,
   buildMetadataPreview,
@@ -55,6 +55,7 @@ export interface CliPipelineDependencies {
   metadataFileSystem?: MetadataFileSystem;
   install: (command: InstallCommand) => Promise<void>;
   packageManagerAdapter?: PackageManagerAdapter;
+  rollbackScaffold?: (target: string) => { leftovers: string[] };
 }
 
 export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
@@ -141,7 +142,9 @@ export function normalizeCiInput(input: CiInput): NormalizedPlan {
     throw new Error('CI mode requires an explicit target.');
   const packageManager = requirePackageManager(input.packageManager, true);
   const target = input.target;
-  const selections = input.selections ?? ['core-crud'];
+  if (!input.selections)
+    throw new Error('CI mode requires an explicit --select capability list.');
+  const selections = input.selections;
   const descriptors = resolveCapabilities(selections);
   requireCiArtifact(
     'core',
@@ -193,7 +196,7 @@ function requireCiArtifact(
   if (!version) throw new Error(`CI mode requires ${capability} version.`);
   if (
     !integrity ||
-    !/^sha512-.+/.test(integrity) ||
+    !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(integrity) ||
     integrity === 'sha512-pending'
   )
     throw new Error(`CI mode requires ${capability} integrity.`);
@@ -330,34 +333,42 @@ async function executePipeline(
   const packageManagerAdapter =
     dependencies.packageManagerAdapter ??
     createPackageManagerAdapter(plan.packageManager);
-  if (!preflight.existing || !args.retry)
-    await dependencies.scaffold(
-      packageManagerAdapter.scaffoldCommand(projectName),
-      dirname(preflight.target),
-    );
-  verifyVanillaScaffold(preflight.target, dependencies.scaffoldFileSystem);
   const metadataFileSystem = dependencies.metadataFileSystem;
-  const metadata = metadataFileSystem
-    ? buildMetadataPreview(plan, metadataFileSystem, verifiedArtifacts)
-    : undefined;
-  if (metadata && metadataFileSystem)
-    applyOwnedWrites(metadata, metadataFileSystem);
+  let metadata: ReturnType<typeof buildMetadataPreview> | undefined;
   try {
+    if (!preflight.existing || !args.retry)
+      await dependencies.scaffold(
+        packageManagerAdapter.scaffoldCommand(projectName),
+        dirname(preflight.target),
+      );
+    verifyVanillaScaffold(preflight.target, dependencies.scaffoldFileSystem);
+    metadata = metadataFileSystem
+      ? buildMetadataPreview(plan, metadataFileSystem, verifiedArtifacts)
+      : undefined;
+    if (metadata && metadataFileSystem)
+      applyOwnedWrites(metadata, metadataFileSystem);
     if (plan.installEnabled)
       await dependencies.install(
         packageManagerAdapter.installCommand(preflight.target),
       );
   } catch (error) {
+    const leftovers: string[] = [];
     if (metadata && metadataFileSystem) {
       const rollback = rollbackOwnedWrites(metadata, metadataFileSystem);
-      const detail = rollback.leftovers.length
-        ? ` Leftovers: ${rollback.leftovers.join(', ')}. Recovery is required.`
-        : ' Rollback completed.';
-      throw new Error(
-        `${error instanceof Error ? error.message : String(error)}${detail}`,
-      );
+      leftovers.push(...rollback.leftovers);
     }
-    throw error;
+    if (!preflight.existing && !args.retry) {
+      const rollback = dependencies.rollbackScaffold?.(preflight.target) ?? {
+        leftovers: [],
+      };
+      leftovers.push(...rollback.leftovers);
+    }
+    const detail = leftovers.length
+      ? ` Leftovers: ${leftovers.join(', ')}. Recovery is required.`
+      : ' Rollback completed.';
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}${detail}`,
+    );
   }
   return { exitCode: 0, output: renderPreview(plan), plan };
 }
@@ -415,6 +426,10 @@ export function createDefaultPipelineDependencies(
       isDirectory: (path) => defaultFileSystem.isDirectory(path),
     },
     metadataFileSystem: createMetadataFileSystem(),
+    rollbackScaffold: (target) => {
+      rmSync(target, { recursive: true, force: true });
+      return { leftovers: existsSync(target) ? [target] : [] };
+    },
     install: async (command) => {
       if (!command.executable)
         throw new Error('Package manager executable is unavailable.');

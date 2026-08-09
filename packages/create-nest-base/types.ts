@@ -47,6 +47,19 @@ export interface ResolvedCapability {
   model?: GeneratorModel;
 }
 
+export interface HttpCoreReleaseEvidence {
+  package: '@nest-base/http-core';
+  version: string;
+  integrity: `sha512-${string}`;
+  published: {
+    package: '@nest-base/http-core';
+    version: string;
+    integrity: `sha512-${string}`;
+  };
+  audit: { command: string; passed: true };
+  consumer: { command: string; passed: true; modes: readonly string[] };
+}
+
 export interface NormalizedPlan {
   schemaVersion: 1;
   wizardVersion: string;
@@ -74,14 +87,15 @@ export interface InteractiveInput {
   selections?: readonly string[];
   coreVersion?: string;
   coreSource?: CapabilitySourceInput;
-  coreIntegrity?: `sha512-${string}`;
+  coreIntegrity?: string;
   loggerVersion?: string;
   loggerSource?: CapabilitySourceInput;
-  loggerIntegrity?: `sha512-${string}`;
+  loggerIntegrity?: string;
   httpCoreVersion?: string;
   httpCoreSource?: CapabilitySourceInput;
-  httpCoreIntegrity?: `sha512-${string}`;
+  httpCoreIntegrity?: string;
   wizardVersion?: string;
+  httpCoreReleaseEvidence?: HttpCoreReleaseEvidence;
 }
 
 export interface CiInput extends Omit<InteractiveInput, 'target'> {

@@ -11,15 +11,21 @@ describe('create-nest-base CI normalization', () => {
   it('requires explicit CI target and selected capability sources/versions', () => {
     expect(() => normalizeCiInput({ ci: true })).toThrow('target');
     expect(() =>
-      normalizeCiInput({ ci: true, target: './demo', packageManager: 'bun' }),
+      normalizeCiInput({
+        ci: true,
+        target: './demo',
+        packageManager: 'bun',
+        selections: ['core-crud'],
+      }),
     ).toThrow('core source');
     expect(() =>
       normalizeCiInput({
         ci: true,
         target: './demo',
         packageManager: 'bun',
+        selections: ['core-crud'],
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-core',
+        coreIntegrity: 'sha512-' + 'A'.repeat(88),
       }),
     ).toThrow('core source');
     expect(() =>
@@ -28,9 +34,9 @@ describe('create-nest-base CI normalization', () => {
         target: './demo',
         packageManager: 'bun',
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
-        coreIntegrity: 'sha512-core',
+        coreIntegrity: 'sha512-' + 'A'.repeat(88),
       }),
-    ).toThrow('core version');
+    ).toThrow('--select');
     expect(() =>
       normalizeCiInput({
         ci: true,
@@ -39,7 +45,7 @@ describe('create-nest-base CI normalization', () => {
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
       }),
-    ).toThrow('core integrity');
+    ).toThrow('--select');
     expect(() =>
       normalizeCiInput({
         ci: true,
@@ -49,7 +55,7 @@ describe('create-nest-base CI normalization', () => {
         coreVersion: '1.2.3',
         coreIntegrity: 'sha512-pending',
       }),
-    ).toThrow('integrity');
+    ).toThrow('--select');
     expect(() =>
       normalizeCiInput({
         ci: true,
@@ -58,7 +64,7 @@ describe('create-nest-base CI normalization', () => {
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-core',
+        coreIntegrity: 'sha512-' + 'A'.repeat(88),
       }),
     ).toThrow('logger source');
     expect(() =>
@@ -69,9 +75,9 @@ describe('create-nest-base CI normalization', () => {
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-core',
+        coreIntegrity: 'sha512-' + 'A'.repeat(88),
         loggerSource: { kind: 'registry', spec: '@nest-base/logger@2.0.0' },
-        loggerIntegrity: 'sha512-logger',
+        loggerIntegrity: 'sha512-' + 'A'.repeat(88),
       }),
     ).toThrow('logger version');
     expect(() =>
@@ -82,7 +88,7 @@ describe('create-nest-base CI normalization', () => {
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-core',
+        coreIntegrity: 'sha512-' + 'A'.repeat(88),
         loggerSource: { kind: 'registry', spec: '@nest-base/logger@2.0.0' },
         loggerVersion: '2.0.0',
       }),
@@ -97,6 +103,33 @@ describe('create-nest-base CI normalization', () => {
     ).toThrow('unavailable');
   });
 
+  it('fails closed when CI capability selection is omitted', () => {
+    expect(() =>
+      normalizeCiInput({
+        ci: true,
+        target: './demo',
+        packageManager: 'bun',
+        coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
+        coreVersion: '1.2.3',
+        coreIntegrity: 'sha512-' + 'A'.repeat(88),
+      }),
+    ).toThrow('--select');
+  });
+
+  it('rejects malformed SHA-512 integrity during CI normalization', () => {
+    expect(() =>
+      normalizeCiInput({
+        ci: true,
+        target: './demo',
+        packageManager: 'bun',
+        selections: ['core-crud'],
+        coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
+        coreVersion: '1.2.3',
+        coreIntegrity: 'sha512-not-base64!',
+      }),
+    ).toThrow('integrity');
+  });
+
   it('requires explicit HTTP-core artifact inputs only when HTTP-core is selected', () => {
     const base = {
       ci: true as const,
@@ -104,7 +137,7 @@ describe('create-nest-base CI normalization', () => {
       packageManager: 'bun' as const,
       coreSource: { kind: 'registry' as const, spec: '@nest-base/core@1.2.3' },
       coreVersion: '1.2.3',
-      coreIntegrity: 'sha512-core' as const,
+      coreIntegrity: ('sha512-' + 'A'.repeat(88)) as `sha512-${string}`,
       selections: ['core-crud', 'http-core'],
     };
     expect(() => normalizeCiInput(base)).toThrow('http-core source');
@@ -131,7 +164,7 @@ describe('create-nest-base CI normalization', () => {
       ...base,
       httpCoreSource: { kind: 'registry', spec: '@nest-base/http-core@0.1.0' },
       httpCoreVersion: '0.1.0',
-      httpCoreIntegrity: 'sha512-http-core',
+      httpCoreIntegrity: 'sha512-' + 'A'.repeat(88),
     });
     expect(plan.capabilities.map((entry) => entry.id)).toEqual([
       'core-crud',
@@ -146,13 +179,13 @@ describe('create-nest-base CI normalization', () => {
       selections: ['logger'],
       coreVersion: '1.2.3',
       coreSource: { kind: 'registry' as const, spec: '@nest-base/core@1.2.3' },
-      coreIntegrity: 'sha512-core' as const,
+      coreIntegrity: ('sha512-' + 'A'.repeat(88)) as `sha512-${string}`,
       loggerVersion: '2.0.0',
       loggerSource: {
         kind: 'registry' as const,
         spec: '@nest-base/logger@2.0.0',
       },
-      loggerIntegrity: 'sha512-logger' as const,
+      loggerIntegrity: ('sha512-' + 'A'.repeat(88)) as `sha512-${string}`,
       wizardVersion: '0.1.0',
     };
     expect(serializePlan(normalizeCiInput({ ...input, ci: true }))).toBe(
@@ -176,7 +209,7 @@ describe('create-nest-base CI normalization', () => {
         '--core-source',
         '@nest-base/core@1.2.3',
         '--core-integrity',
-        'sha512-core',
+        'sha512-' + 'A'.repeat(88),
       ]),
     ).toMatchObject({ ci: true, dryRun: true, target: './demo' });
   });
@@ -189,12 +222,14 @@ describe('create-nest-base CI normalization', () => {
       '--yes',
       '--target',
       './demo',
+      '--select',
+      'core-crud',
       '--core-version',
       '1.2.3',
       '--core-source',
       '@nest-base/core@1.2.3',
       '--core-integrity',
-      'sha512-core',
+      'sha512-' + 'A'.repeat(88),
     ]);
 
     expect(runCli(args).exitCode).toBe(0);

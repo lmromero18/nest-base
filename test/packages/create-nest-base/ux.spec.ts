@@ -6,6 +6,25 @@ import {
   renderPreview,
 } from '../../../packages/create-nest-base/ux';
 
+const releaseEvidence = {
+  package: '@nest-base/http-core' as const,
+  version: '0.1.0',
+  integrity:
+    'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==' as `sha512-${string}`,
+  published: {
+    package: '@nest-base/http-core' as const,
+    version: '0.1.0',
+    integrity:
+      'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==' as `sha512-${string}`,
+  },
+  audit: { command: 'bun run audit:http-core:tarball', passed: true as const },
+  consumer: {
+    command: 'bun run verify:http-core:consumer',
+    passed: true as const,
+    modes: ['esm', 'cjs'] as const,
+  },
+};
+
 describe('create-nest-base interactive UX', () => {
   it('explains mandatory CRUD, optional logger, and unavailable future cards', () => {
     const cards = buildInteractiveCards();
@@ -41,7 +60,10 @@ describe('create-nest-base interactive UX', () => {
   });
 
   it('selects recommended HTTP core interactively and allows explicit core-only opt-out', () => {
-    const recommended = normalizeInteractiveInput({ target: './demo' });
+    const recommended = normalizeInteractiveInput({
+      target: './demo',
+      httpCoreReleaseEvidence: releaseEvidence,
+    });
     expect(recommended.capabilities.map((entry) => entry.id)).toEqual([
       'core-crud',
       'http-core',
