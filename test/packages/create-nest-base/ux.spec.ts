@@ -6,7 +6,7 @@ import {
   normalizeInteractiveInput,
   renderPreview,
 } from '../../../packages/create-nest-base/ux';
-import { createHttpCoreReleaseEvidence } from '../../../packages/create-nest-base/registry';
+import { createHttpCoreReleaseEvidenceForTest } from '../../../packages/create-nest-base/registry';
 
 describe('create-nest-base interactive UX', () => {
   it('explains mandatory CRUD, optional logger, and unavailable future cards', () => {
@@ -101,9 +101,10 @@ describe('create-nest-base interactive UX', () => {
 
 async function makeReleaseEvidence() {
   const bytes = Bun.gzipSync(new Uint8Array(1024));
-  const coreArtifact = { bytes };
+  const coreBytes = Bun.gzipSync(new Uint8Array(1025));
+  const coreArtifact = { bytes: coreBytes };
   const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
-  return createHttpCoreReleaseEvidence({
+  return createHttpCoreReleaseEvidenceForTest({
     coreArtifact,
     independentConsumerGate: { verify: () => Promise.resolve() },
     inspect: (artifact) =>
@@ -126,7 +127,23 @@ async function makeReleaseEvidence() {
                 },
               },
             })
-          : new Response(new Blob([bytes as unknown as BlobPart])),
+          : String(input).includes('%40nest-base%2Fcore')
+            ? Response.json({
+                versions: {
+                  '0.1.0': {
+                    name: '@nest-base/core',
+                    version: '0.1.0',
+                    dist: {
+                      tarball:
+                        'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz',
+                      integrity: `sha512-${createHash('sha512').update(coreBytes).digest('base64')}`,
+                    },
+                  },
+                },
+              })
+            : String(input).endsWith('/core-0.1.0.tgz')
+              ? new Response(new Blob([coreBytes as unknown as BlobPart]))
+              : new Response(new Blob([bytes as unknown as BlobPart])),
       ),
   });
 }

@@ -74,6 +74,12 @@ export interface HttpCoreReleaseEvidence {
     status: 'passed';
     modes: readonly ['esm', 'cjs'];
   };
+  core: {
+    package: '@nest-base/core';
+    version: '0.1.0';
+    integrity: `sha512-${string}`;
+    tarball: string;
+  };
   evidenceDigest: `sha256-${string}`;
 }
 

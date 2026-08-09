@@ -13,6 +13,7 @@ import type {
   PackedArtifactIdentity,
 } from './artifact-gate.js';
 import { assertSha512Integrity } from './artifact-gate.js';
+import { createIndependentConsumerGate } from './consumer-gate.js';
 
 export const REGISTRY_REVISION = '2026-07-27';
 export const DEFAULT_WIZARD_VERSION = '0.1.0';
@@ -21,20 +22,55 @@ const DEFAULT_LOGGER_VERSION = '1.0.0';
 export const DEFAULT_CORE_INTEGRITY =
   'sha512-wjDf/s0C9qVaXHhtwJV38Dr9rZuxLWFxuqT1gPgK5WJ33zJw2TEixpV22EcPn1iY8YI3ErgGOzktv8ywtqty/g==';
 export interface HttpCoreReleaseEvidenceInput {
-  /** A source of registry metadata and the canonical release tarball. */
-  registry?: RegistryFetch;
-  /** The packed core artifact that the independent HTTP-core consumer must use. */
   coreArtifact: ArtifactRecord;
-  /** The real independent consumer gate; claims are never accepted as evidence. */
-  independentConsumerGate: IndependentConsumerGate;
-  inspect?: (artifact: ArtifactRecord) => PackedArtifactIdentity;
 }
 
 export async function createHttpCoreReleaseEvidence(
   input: HttpCoreReleaseEvidenceInput,
 ): Promise<HttpCoreReleaseEvidence> {
-  const release = await fetchCanonicalHttpCoreRelease(input.registry ?? fetch);
-  const inspect = input.inspect ?? inspectPackedArtifact;
+  return createHttpCoreReleaseEvidenceInternal(input, {
+    fetcher: fetch,
+    consumerGate: createIndependentConsumerGate(),
+    inspect: inspectPackedArtifact,
+  });
+}
+
+/** Test-only seam. Production callers must use createHttpCoreReleaseEvidence. */
+export interface HttpCoreReleaseEvidenceTestInput extends HttpCoreReleaseEvidenceInput {
+  registry: RegistryFetch;
+  independentConsumerGate: IndependentConsumerGate;
+  inspect?: (artifact: ArtifactRecord) => PackedArtifactIdentity;
+}
+
+export async function createHttpCoreReleaseEvidenceForTest(
+  input: HttpCoreReleaseEvidenceTestInput,
+): Promise<HttpCoreReleaseEvidence> {
+  return createHttpCoreReleaseEvidenceInternal(input, {
+    fetcher: input.registry,
+    consumerGate: input.independentConsumerGate,
+    inspect: input.inspect ?? inspectPackedArtifact,
+  });
+}
+
+async function createHttpCoreReleaseEvidenceInternal(
+  input: HttpCoreReleaseEvidenceInput,
+  dependencies: {
+    fetcher: RegistryFetch;
+    consumerGate: IndependentConsumerGate;
+    inspect: (artifact: ArtifactRecord) => PackedArtifactIdentity;
+  },
+): Promise<HttpCoreReleaseEvidence> {
+  const release = await fetchCanonicalPackageRelease(
+    dependencies.fetcher,
+    '@nest-base/http-core',
+    '0.1.0',
+  );
+  const coreRelease = await fetchCanonicalPackageRelease(
+    dependencies.fetcher,
+    '@nest-base/core',
+    '0.1.0',
+  );
+  const inspect = dependencies.inspect;
   const identity = inspect(release.artifact);
   if (
     identity.package !== '@nest-base/http-core' ||
@@ -48,7 +84,11 @@ export async function createHttpCoreReleaseEvidence(
     coreIdentity.version !== '0.1.0'
   )
     throw new Error('HTTP-core release core dependency identity mismatch.');
-  await input.independentConsumerGate.verify(
+  if (coreRelease.integrity !== digestArtifact(input.coreArtifact))
+    throw new Error('Supplied core artifact integrity/provenance mismatch.');
+  if (!bytesEqual(coreRelease.artifact.bytes, input.coreArtifact.bytes))
+    throw new Error('Supplied core artifact bytes are not canonical.');
+  await dependencies.consumerGate.verify(
     release.artifact,
     identity,
     'http-core',
@@ -82,6 +122,12 @@ export async function createHttpCoreReleaseEvidence(
       status: 'passed' as const,
       modes: ['esm', 'cjs'] as const,
     },
+    core: {
+      package: '@nest-base/core' as const,
+      version: '0.1.0' as const,
+      integrity: coreRelease.integrity,
+      tarball: coreRelease.tarball,
+    },
   };
   const evidence = {
     ...payload,
@@ -93,44 +139,58 @@ export async function createHttpCoreReleaseEvidence(
 
 const boundEvidence = new WeakSet<object>();
 
-async function fetchCanonicalHttpCoreRelease(fetcher: RegistryFetch): Promise<{
+async function fetchCanonicalPackageRelease(
+  fetcher: RegistryFetch,
+  packageName: string,
+  version: string,
+): Promise<{
   artifact: ArtifactRecord;
   tarball: string;
   integrity: `sha512-${string}`;
 }> {
+  const encodedPackage = encodeURIComponent(packageName);
   const metadataResponse = await fetcher(
-    'https://registry.npmjs.org/%40nest-base%2Fhttp-core',
+    `https://registry.npmjs.org/${encodedPackage}`,
     { redirect: 'manual' },
   );
   if (!metadataResponse.ok || isRedirect(metadataResponse))
     throw new Error('HTTP-core registry release metadata is unavailable.');
   const metadata: unknown = await metadataResponse.json();
-  const versionMetadata = readVersionMetadata(
-    metadata,
-    '@nest-base/http-core',
-    '0.1.0',
-  );
+  const versionMetadata = readVersionMetadata(metadata, packageName, version);
   if (!versionMetadata || !versionMetadata.integrity)
-    throw new Error('HTTP-core registry release metadata is incomplete.');
+    throw new Error(`${packageName} registry release metadata is incomplete.`);
+  const tarballName = packageName.slice(packageName.lastIndexOf('/') + 1);
   const canonicalTarball =
-    'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz';
+    `https://registry.npmjs.org/${packageName}/-/` +
+    `${tarballName}-${version}.tgz`;
   if (versionMetadata.tarball !== canonicalTarball)
-    throw new Error('HTTP-core registry release URL is not canonical.');
+    throw new Error(`${packageName} registry release URL is not canonical.`);
   assertSha512Integrity(versionMetadata.integrity);
   const tarballResponse = await fetcher(canonicalTarball, {
     redirect: 'manual',
   });
   if (!tarballResponse.ok || isRedirect(tarballResponse))
-    throw new Error('HTTP-core registry release tarball is unavailable.');
+    throw new Error(`${packageName} registry release tarball is unavailable.`);
   const bytes = new Uint8Array(await tarballResponse.arrayBuffer());
   const actual = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
   if (actual !== versionMetadata.integrity)
-    throw new Error('HTTP-core release tarball digest mismatch.');
+    throw new Error(`${packageName} release tarball digest mismatch.`);
   return {
     artifact: { bytes },
     tarball: canonicalTarball,
     integrity: actual,
   };
+}
+
+function digestArtifact(artifact: ArtifactRecord): `sha512-${string}` {
+  return `sha512-${createHash('sha512').update(artifact.bytes).digest('base64')}`;
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  return (
+    left.length === right.length &&
+    left.every((byte, index) => byte === right[index])
+  );
 }
 
 function auditHttpCoreReleaseArtifact(
@@ -164,6 +224,7 @@ export function bindHttpCoreReleaseEvidence(
   assertSha512Integrity(evidence.integrity);
   assertSha512Integrity(evidence.published.integrity);
   assertSha512Integrity(evidence.artifactDigest);
+  assertSha512Integrity(evidence.core.integrity);
   if (
     evidence.schema !== 'http-core-release-evidence/v1' ||
     evidence.package !== evidence.published.package ||
@@ -188,7 +249,11 @@ export function bindHttpCoreReleaseEvidence(
     evidence.consumer.version !== evidence.version ||
     evidence.consumer.artifactDigest !== evidence.artifactDigest ||
     evidence.consumer.modes.join(',') !== 'esm,cjs' ||
-    evidence.consumer.modes.length !== 2
+    evidence.consumer.modes.length !== 2 ||
+    evidence.core.package !== '@nest-base/core' ||
+    evidence.core.version !== '0.1.0' ||
+    evidence.core.tarball !==
+      'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz'
   )
     throw new Error(
       'HTTP-core release evidence audit/consumer proof is incomplete.',

@@ -11,6 +11,7 @@ import {
   assertHttpCoreReleaseEvidence,
   bindHttpCoreReleaseEvidence,
   createHttpCoreReleaseEvidence,
+  createHttpCoreReleaseEvidenceForTest,
 } from '../../../packages/create-nest-base/registry';
 import type { HttpCoreReleaseEvidence } from '../../../packages/create-nest-base/types';
 
@@ -115,6 +116,28 @@ describe('create-nest-base capability registry', () => {
       (metadataIntegrity: string, bytes = releaseBytes) =>
       (input: RequestInfo | URL) => {
         const url = String(input);
+        const coreBytes = coreArtifact.bytes;
+        const coreIntegrity = `sha512-${createHash('sha512').update(coreBytes).digest('base64')}`;
+        if (url.includes('%40nest-base%2Fcore'))
+          return Promise.resolve(
+            Response.json({
+              versions: {
+                '0.1.0': {
+                  name: '@nest-base/core',
+                  version: '0.1.0',
+                  dist: {
+                    tarball:
+                      'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz',
+                    integrity: coreIntegrity,
+                  },
+                },
+              },
+            }),
+          );
+        if (url.endsWith('/core-0.1.0.tgz'))
+          return Promise.resolve(
+            new Response(new Blob([coreBytes as unknown as BlobPart])),
+          );
         if (url.includes('%40nest-base%2Fhttp-core'))
           return Promise.resolve(
             Response.json({
@@ -138,7 +161,7 @@ describe('create-nest-base capability registry', () => {
     const integrity = `sha512-${createHash('sha512').update(releaseBytes).digest('base64')}`;
     const gate = { verify: () => Promise.resolve() };
     await expectRejected(
-      createHttpCoreReleaseEvidence({
+      createHttpCoreReleaseEvidenceForTest({
         registry: makeFetcher('sha512-A'),
         coreArtifact,
         independentConsumerGate: gate,
@@ -146,12 +169,63 @@ describe('create-nest-base capability registry', () => {
       'integrity',
     );
     await expectRejected(
-      createHttpCoreReleaseEvidence({
+      createHttpCoreReleaseEvidenceForTest({
         registry: makeFetcher(integrity, new Uint8Array([1, 2, 3])),
         coreArtifact,
         independentConsumerGate: gate,
       }),
       'digest',
+    );
+  });
+
+  it('rejects arbitrary same-identity core bytes', async () => {
+    const releaseBytes = await gzipTarball({
+      name: '@nest-base/http-core',
+      version: '0.1.0',
+    });
+    const canonicalCore = await gzipTarball({
+      name: '@nest-base/core',
+      version: '0.1.0',
+    });
+    const arbitraryCore = await gzipTarball({
+      name: '@nest-base/core',
+      version: '0.1.0',
+      forged: 'true',
+    });
+    const fetcher = (input: RequestInfo | URL) => {
+      const url = String(input);
+      const isCore =
+        url.includes('%40nest-base%2Fcore') || url.endsWith('/core-0.1.0.tgz');
+      const bytes = isCore ? canonicalCore : releaseBytes;
+      if (url.includes('%40nest-base%2F'))
+        return Promise.resolve(
+          Response.json({
+            versions: {
+              '0.1.0': {
+                name: isCore ? '@nest-base/core' : '@nest-base/http-core',
+                version: '0.1.0',
+                dist: {
+                  tarball: isCore
+                    ? 'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz'
+                    : 'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+                  integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}`,
+                },
+              },
+            },
+          }),
+        );
+      return Promise.resolve(
+        new Response(new Blob([bytes as unknown as BlobPart])),
+      );
+    };
+
+    await expectRejected(
+      createHttpCoreReleaseEvidenceForTest({
+        registry: fetcher,
+        coreArtifact: { bytes: arbitraryCore },
+        independentConsumerGate: { verify: () => Promise.resolve() },
+      }),
+      'integrity/provenance',
     );
   });
 
@@ -169,6 +243,28 @@ describe('create-nest-base capability registry', () => {
       'core-crud',
       'logger',
     ]);
+  });
+
+  it('does not allow production evidence overrides to forge accepted evidence', async () => {
+    const fakeCore = {
+      bytes: await gzipTarball({
+        name: '@nest-base/core',
+        version: '0.1.0',
+      }),
+    };
+
+    await expectRejected(
+      createHttpCoreReleaseEvidence({
+        coreArtifact: fakeCore,
+        registry: (() => Promise.reject(new Error('forged registry'))) as never,
+        inspect: (() => ({
+          package: '@nest-base/core',
+          version: '0.1.0',
+        })) as never,
+        independentConsumerGate: { verify: () => Promise.resolve() } as never,
+      } as never),
+      'integrity',
+    );
   });
 
   it('normalizes registry, file, and URL sources deterministically', () => {
@@ -284,6 +380,26 @@ async function createReleaseEvidence() {
   const integrity = `sha512-${createHash('sha512').update(httpBytes).digest('base64')}`;
   const fetcher = (input: RequestInfo | URL) => {
     const url = String(input);
+    if (url.includes('%40nest-base%2Fcore'))
+      return Promise.resolve(
+        Response.json({
+          versions: {
+            '0.1.0': {
+              name: '@nest-base/core',
+              version: '0.1.0',
+              dist: {
+                tarball:
+                  'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz',
+                integrity: `sha512-${createHash('sha512').update(coreArtifact.bytes).digest('base64')}`,
+              },
+            },
+          },
+        }),
+      );
+    if (url.endsWith('/core-0.1.0.tgz'))
+      return Promise.resolve(
+        new Response(new Blob([coreArtifact.bytes as unknown as BlobPart])),
+      );
     if (url.includes('%40nest-base%2Fhttp-core'))
       return Promise.resolve(
         Response.json({
@@ -304,7 +420,7 @@ async function createReleaseEvidence() {
       new Response(new Blob([httpBytes as unknown as BlobPart])),
     );
   };
-  return createHttpCoreReleaseEvidence({
+  return createHttpCoreReleaseEvidenceForTest({
     registry: fetcher,
     coreArtifact,
     independentConsumerGate: { verify: () => Promise.resolve() },
