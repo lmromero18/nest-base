@@ -51,7 +51,7 @@ function memoryFs(files: Record<string, string>): MetadataFileSystem {
 }
 
 describe('create-nest-base canonical metadata', () => {
-  it('builds a v1 manifest and exact package mirror while preserving root keys', () => {
+  it('builds a v2 manifest and mirrored lifecycle provenance while preserving root keys', () => {
     const files: Record<string, string> = {
       [packagePath]: JSON.stringify({
         name: 'demo',
@@ -73,7 +73,7 @@ describe('create-nest-base canonical metadata', () => {
         .content,
     ) as { scripts: unknown; nestBase: unknown };
 
-    expect(manifest.schemaVersion).toBe(1);
+    expect(manifest.schemaVersion).toBe(2);
     expect(manifest.resolvedEntries[0]).toMatchObject(plan.capabilities[0]);
     expect(manifest.dependencySections).toEqual({
       dependencies: { '@nest-base/core': '1.0.0' },
@@ -91,9 +91,24 @@ describe('create-nest-base canonical metadata', () => {
     expect(manifest.hashes['package.json.nestBase']).toMatch(/^[a-f0-9]{64}$/);
     expect(packageJson.scripts).toEqual({ test: 'bun test' });
     expect(packageJson.nestBase).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       wizardVersion: '0.1.0',
       manifestPath: '.nest-base/manifest.json',
+      packageManager: 'bun',
+      launcher: 'bunx',
+      installEnabled: true,
+      scaffoldArgs: [
+        '@nestjs/cli@11.0.0',
+        'new',
+        'demo',
+        '--package-manager',
+        'bun',
+        '--strict',
+        '--skip-install',
+        '--skip-git',
+      ],
+      installArgs: ['install'],
+      registryRevision: '2026-07-27',
       capabilities: plan.capabilities,
     });
   });
@@ -328,6 +343,106 @@ describe('create-nest-base canonical metadata', () => {
     ).toThrow('drift');
     expect(() =>
       buildMetadataPreview({ ...plan, installEnabled: false }, fs),
+    ).toThrow('drift');
+  });
+
+  it('migrates an unchanged legacy v1 scaffold to v2 provenance on retry', () => {
+    const legacyMirror = {
+      schemaVersion: 1,
+      wizardVersion: plan.wizardVersion,
+      manifestPath: '.nest-base/manifest.json',
+      capabilities: plan.capabilities,
+    };
+    const legacyPackage = JSON.stringify({
+      name: 'demo',
+      nestBase: legacyMirror,
+    });
+    const legacyHashes: Record<string, string> = {
+      'package.json': createHash('sha256').update(legacyPackage).digest('hex'),
+      'package.json.nestBase': createHash('sha256')
+        .update(`${JSON.stringify(legacyMirror, null, 2)}\n`)
+        .digest('hex'),
+    };
+    const legacyManifest: Record<string, unknown> = {
+      schemaVersion: 1,
+      wizardVersion: plan.wizardVersion,
+      target: plan.target,
+      registryRevision: plan.registryRevision,
+      resolvedEntries: plan.capabilities,
+      dependencySections: {
+        dependencies: {},
+        devDependencies: {},
+      },
+      ownedPaths: [
+        'package.json',
+        '.nest-base/manifest.json',
+        'package.json.nestBase',
+      ],
+      hashes: legacyHashes,
+      hashRule: 'manifest-with-self-hash-entry-omitted',
+    };
+    legacyHashes['.nest-base/manifest.json'] = createHash('sha256')
+      .update(
+        `${JSON.stringify(legacyManifest, null, 2)}\n`.replace(
+          /"\.nest-base\/manifest\.json": "[a-f0-9]+",\n/,
+          '',
+        ),
+      )
+      .digest('hex');
+
+    const files: Record<string, string> = {
+      [packagePath]: legacyPackage,
+      [manifestPath]: `${JSON.stringify(legacyManifest, null, 2)}\n`,
+    };
+    const preview = buildMetadataPreview(plan, memoryFs(files));
+    const migratedManifest = JSON.parse(
+      preview.writes.find((write) => write.path === manifestPath)!.content,
+    ) as { schemaVersion: number };
+
+    expect(migratedManifest.schemaVersion).toBe(2);
+    expect(preview.writes.map((write) => write.path)).toContain(packagePath);
+    expect(preview.writes.map((write) => write.path)).toContain(manifestPath);
+  });
+
+  it('rejects incompatible legacy v1 capability drift during migration', () => {
+    const files: Record<string, string> = {
+      [packagePath]: JSON.stringify({ name: 'demo' }),
+    };
+    const first = buildMetadataPreview(plan, memoryFs(files));
+    const currentManifest = JSON.parse(
+      first.writes.find((write) => write.path === manifestPath)!.content,
+    ) as Record<string, unknown>;
+    const legacyManifest: Record<string, unknown> = {
+      ...currentManifest,
+      schemaVersion: 1,
+      packageManager: undefined,
+      launcher: undefined,
+      installEnabled: undefined,
+      scaffoldArgs: undefined,
+      installArgs: undefined,
+    };
+    for (const key of [
+      'packageManager',
+      'launcher',
+      'installEnabled',
+      'scaffoldArgs',
+      'installArgs',
+    ])
+      delete legacyManifest[key];
+    const legacyContent = `${JSON.stringify(legacyManifest, null, 2)}\n`;
+    const legacyFiles = {
+      [packagePath]: JSON.stringify({ name: 'demo' }),
+      [manifestPath]: legacyContent,
+    };
+
+    expect(() =>
+      buildMetadataPreview(
+        {
+          ...plan,
+          capabilities: [{ ...plan.capabilities[0], version: '2.0.0' }],
+        },
+        memoryFs(legacyFiles),
+      ),
     ).toThrow('drift');
   });
 
