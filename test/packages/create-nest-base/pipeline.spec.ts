@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'bun:test';
-import { runCli, runCliPipeline } from '../../../packages/create-nest-base/cli';
+import {
+  createDefaultPipelineDependencies,
+  runCli,
+  runCliPipeline,
+} from '../../../packages/create-nest-base/cli';
 import { createMetadataFileSystem } from '../../../packages/create-nest-base/metadata';
 import type { CliPipelineDependencies } from '../../../packages/create-nest-base/cli';
 
@@ -226,6 +230,71 @@ describe('create-nest-base CLI pipeline', () => {
     expect(calls).toEqual(['artifact-gate']);
   });
 
+  it('wires the independent consumer gate into default dependencies', () => {
+    const gate =
+      createDefaultPipelineDependencies(true).independentConsumerGate;
+    expect(typeof gate?.verify).toBe('function');
+  });
+
+  it('confirms before resolving or executing downloaded artifacts', async () => {
+    const calls: string[] = [];
+    await runCliPipeline(
+      args,
+      dependencies({
+        artifactLoaders: {
+          registry: () => {
+            calls.push('artifact');
+            return Promise.resolve({ bytes });
+          },
+          inspect: () => ({ package: '@nest-base/core', version: '1.0.0' }),
+        },
+        independentConsumerGate: {
+          verify: () => {
+            calls.push('consumer');
+            return Promise.resolve();
+          },
+        },
+        confirm: () => {
+          calls.push('confirm');
+          return Promise.resolve();
+        },
+        metadataFileSystem: undefined,
+      }),
+    );
+
+    expect(calls).toEqual(['confirm', 'artifact', 'consumer']);
+  });
+
+  it('does not resolve or execute the consumer gate during dry-run', async () => {
+    const calls: string[] = [];
+    const result = await runCliPipeline(
+      { ...args, dryRun: true, yes: false },
+      dependencies({
+        artifactLoaders: {
+          registry: () => {
+            calls.push('artifact');
+            return Promise.resolve({ bytes });
+          },
+          inspect: () => ({ package: '@nest-base/core', version: '1.0.0' }),
+        },
+        independentConsumerGate: {
+          verify: () => {
+            calls.push('consumer');
+            return Promise.resolve();
+          },
+        },
+        confirm: () => {
+          calls.push('confirm');
+          return Promise.resolve();
+        },
+        metadataFileSystem: undefined,
+      }),
+    );
+
+    expect(result.output).toContain('core-crud');
+    expect(calls).toEqual(['confirm']);
+  });
+
   it('refuses before confirmation and writes when the target is not writable', async () => {
     const calls: string[] = [];
     let message = 'resolved';
@@ -327,7 +396,7 @@ describe('create-nest-base CLI pipeline', () => {
     expect(calls).toEqual([]);
   });
 
-  it('executes preflight, artifact gate, confirmation, scaffold, and exactly one install in order', async () => {
+  it('executes preflight, confirmation, artifact gate, scaffold, and exactly one install in order', async () => {
     const calls: string[] = [];
     const result = await runCli(args, {
       fileSystem: {
@@ -373,9 +442,9 @@ describe('create-nest-base CLI pipeline', () => {
     expect(result.exitCode).toBe(0);
     expect(calls).toEqual([
       'preflight',
+      'confirm',
       'artifact-gate',
       'consumer',
-      'confirm',
       'scaffold:@nestjs/cli@11.0.0 new demo --strict --skip-install --skip-git',
       `install:${target}`,
     ]);

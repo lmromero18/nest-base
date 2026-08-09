@@ -1,7 +1,18 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, setDefaultTimeout } from 'bun:test';
+
+setDefaultTimeout(120_000);
 
 const packageRoot = resolve(__dirname, '../../../packages/create-nest-base');
 const bunExecutable = process.execPath;
@@ -11,10 +22,14 @@ type PackReport = {
   filename: string;
 };
 
-function run(command: string[], cwd: string) {
+function run(
+  command: string[],
+  cwd: string,
+  environment: NodeJS.ProcessEnv = process.env,
+) {
   return Bun.spawnSync(command, {
     cwd,
-    env: { ...process.env, NODE_PATH: '' },
+    env: { ...environment, NODE_PATH: '' },
     stderr: 'pipe',
     stdout: 'pipe',
   });
@@ -35,6 +50,31 @@ function packInto(directory: string): string {
   const archive = report[0]?.filename;
 
   expect(archive).toMatch(/\.tgz$/);
+  return resolve(directory, archive);
+}
+
+function packCoreInto(directory: string): string {
+  const coreRoot = resolve(packageRoot, '../core');
+  if (!existsSync(resolve(coreRoot, 'dist'))) {
+    const build = run([bunExecutable, 'build.ts'], coreRoot);
+    expect(build.exitCode, output(build)).toBe(0);
+  }
+  const result = run(
+    [
+      npmExecutable,
+      'pack',
+      '--ignore-scripts',
+      '--json',
+      '--pack-destination',
+      directory,
+    ],
+    coreRoot,
+  );
+  expect(result.exitCode).toBe(0);
+  const report = JSON.parse(result.stdout.toString()) as PackReport[];
+  const archive = report[0]?.filename;
+  expect(archive).toMatch(/\.tgz$/);
+  if (!archive) throw new Error('Core archive was not produced.');
   return resolve(directory, archive);
 }
 
@@ -72,6 +112,32 @@ function withCleanConsumer(callback: (workspace: string) => void) {
   }
 }
 
+function runPackedCi(workspace: string, target: string, coreArchive: string) {
+  const coreBytes = new Uint8Array(readFileSync(coreArchive));
+  const integrity = `sha512-${createHash('sha512').update(coreBytes).digest('base64')}`;
+  return run(
+    [
+      bunExecutable,
+      'x',
+      '--bun',
+      'create-nest-base',
+      '--ci',
+      '--target',
+      target,
+      '--yes',
+      '--core-version',
+      '0.1.0',
+      '--core-source',
+      coreArchive,
+      '--core-integrity',
+      integrity,
+      '--retry',
+    ],
+    workspace,
+    { ...process.env, CI: '1' },
+  );
+}
+
 function runPackedHelp(workspace: string) {
   return run(
     [bunExecutable, 'x', '--bun', 'create-nest-base', '--help'],
@@ -87,10 +153,19 @@ describe('create-nest-base packed consumer', () => {
         workspace,
         'node_modules/create-nest-base/index.ts',
       );
+      const installedConsumerGate = readFileSync(
+        resolve(workspace, 'node_modules/create-nest-base/consumer-gate.ts'),
+        'utf8',
+      );
       const help = runPackedHelp(workspace);
 
       expect(binPath.startsWith(`${workspace}${sep}`)).toBe(true);
       expect(installedEntry.startsWith(`${workspace}${sep}`)).toBe(true);
+      expect(installedConsumerGate).toContain(
+        "['install', '--ignore-scripts']",
+      );
+      expect(installedConsumerGate).toContain("'reflect-metadata': '0.2.2'");
+      expect(installedConsumerGate).toContain("typeorm: '0.3.31'");
       expect(help.exitCode).toBe(0);
       expect(output(help)).toContain('create-nest-base');
       expect(output(help)).toContain('--target');
@@ -121,5 +196,33 @@ describe('create-nest-base packed consumer', () => {
       expect(output(help)).toContain("'./cli.js'");
       expect(output(help)).not.toContain(packageRoot);
     });
+  });
+
+  it('runs CI generation from the packed wizard with a packed core artifact', () => {
+    const workspace = createConsumer();
+    const wizardArchiveDirectory = createConsumer();
+    const coreArchiveDirectory = createConsumer();
+    try {
+      const wizardArchive = packInto(wizardArchiveDirectory);
+      const coreArchive = packCoreInto(coreArchiveDirectory);
+      const install = run(['bun', 'add', wizardArchive], workspace);
+      expect(install.exitCode).toBe(0);
+
+      const target = resolve(workspace, 'generated-app');
+      mkdirSync(resolve(target, 'src'), { recursive: true });
+      mkdirSync(resolve(target, 'test'), { recursive: true });
+      writeFileSync(
+        resolve(target, 'package.json'),
+        JSON.stringify({ name: 'generated-app' }),
+      );
+      const result = runPackedCi(workspace, target, coreArchive);
+
+      expect(result.exitCode, output(result)).toBe(0);
+      expect(output(result)).toContain('core-crud');
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(wizardArchiveDirectory, { recursive: true, force: true });
+      rmSync(coreArchiveDirectory, { recursive: true, force: true });
+    }
   });
 });

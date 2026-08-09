@@ -22,6 +22,7 @@ import type {
   IndependentConsumerGate,
 } from './artifact-gate.js';
 import { confirmPlan, normalizeInteractiveInput, renderPreview } from './ux.js';
+import { createIndependentConsumerGate } from './consumer-gate.js';
 import type { CiInput, NormalizedPlan, ParsedCliArgs } from './types.js';
 import { dirname, basename } from 'node:path';
 import { readFileSync } from 'node:fs';
@@ -234,6 +235,9 @@ async function executePipeline(
     dependencies.bunVersion,
     args.retry,
   );
+  await dependencies.confirm(plan);
+  if (args.dryRun) return { exitCode: 0, output: renderPreview(plan), plan };
+
   const verifiedArtifacts = new Map<string, ArtifactRecord>();
   for (const capability of plan.capabilities) {
     const artifact = await resolveArtifact(
@@ -249,8 +253,6 @@ async function executePipeline(
     );
     verifiedArtifacts.set(capability.id, artifact);
   }
-  await dependencies.confirm(plan);
-  if (args.dryRun) return { exitCode: 0, output: renderPreview(plan), plan };
 
   const projectName = basename(preflight.target);
   if (!preflight.existing || !args.retry)
@@ -296,10 +298,17 @@ export function createDefaultPipelineDependencies(
     fileSystem: defaultFileSystem,
     artifactLoaders: {
       registry: createRegistryArtifactLoader(),
-      file: () => Promise.resolve(undefined),
+      file: (path) => {
+        try {
+          return Promise.resolve({ bytes: new Uint8Array(readFileSync(path)) });
+        } catch {
+          return Promise.resolve(undefined);
+        }
+      },
       url: () => Promise.resolve(undefined),
       inspect: inspectPackedArtifact,
     },
+    independentConsumerGate: createIndependentConsumerGate(),
     confirm: () => {
       if (confirmed) return Promise.resolve();
       const answer = prompt(

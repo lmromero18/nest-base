@@ -9,6 +9,7 @@ const expectedFiles = [
   'index.ts',
   'cli.ts',
   'artifact-gate.ts',
+  'consumer-gate.ts',
   'install.ts',
   'metadata.ts',
   'preflight.ts',
@@ -88,7 +89,7 @@ describe('create-nest-base package readiness', () => {
     };
 
     expect(manifest.files).toEqual(expectedFiles);
-    expect(manifest.files).toHaveLength(12);
+    expect(manifest.files).toHaveLength(13);
     for (const file of expectedFiles)
       expect(existsSync(resolve(packageRoot, file))).toBe(true);
   });
