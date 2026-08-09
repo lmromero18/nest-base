@@ -13,6 +13,8 @@ import type {
   NormalizedPlan,
 } from './types.js';
 import { isPackageManager } from './types.js';
+import { describePackageManagerCommands } from './install.js';
+import { basename } from 'node:path';
 
 export interface InteractiveCard {
   id: string;
@@ -114,24 +116,45 @@ export function normalizeInteractiveInput(
     ),
     previewOnly: true,
   };
-  return Object.freeze(plan);
+  return deepFreeze(plan);
 }
 
 export function renderPreview(plan: NormalizedPlan): string {
-  const rows = plan.capabilities.map(
-    (entry) =>
-      `  - ${entry.id}: ${entry.package}@${entry.version} (${entry.source.kind})`,
+  const commands = describePackageManagerCommands(
+    plan.packageManager,
+    basename(plan.target),
+  );
+  const rows = plan.capabilities.map((entry) =>
+    [
+      `  - ${entry.id}: ${entry.package}`,
+      `Source: ${entry.source.kind} ${entry.source.spec}`,
+      `Version: ${entry.version}`,
+      `Integrity: ${entry.integrity}`,
+    ].join('\n    '),
   );
   return [
     'Create Nest Base plan preview',
     `Target: ${plan.target}`,
     `Package manager: ${plan.packageManager}`,
     `Install: ${plan.installEnabled ? 'enabled' : 'disabled'}`,
+    `Scaffold command: ${commands.scaffold.executable} ${commands.scaffold.args.join(' ')}`,
+    `Install command: ${commands.install.executable} ${commands.install.args.join(' ')}`,
+    `Registry revision: ${plan.registryRevision}`,
     'Capabilities:',
     ...rows,
+    `Action: confirm to create files${plan.installEnabled ? ' and install packages' : ''}`,
     'No files, manifests, packages, or installs are written in this phase.',
     'Explicit confirmation required before apply.',
   ].join('\n');
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    Object.freeze(value);
+    for (const nested of Object.values(value as Record<string, unknown>))
+      deepFreeze(nested);
+  }
+  return value;
 }
 
 export function confirmPlan(

@@ -10,6 +10,7 @@ import {
 } from '../../../packages/create-nest-base/ux';
 import {
   createPackageManagerAdapter,
+  resolveExecutableOnPath,
   type PackageManager,
 } from '../../../packages/create-nest-base/install';
 
@@ -27,8 +28,31 @@ describe('create-nest-base manager plan', () => {
     expect(plan.installEnabled).toBe(true);
     expect(Object.isFrozen(plan)).toBe(true);
     expect(Object.isFrozen(plan.capabilities[0])).toBe(true);
+    expect(Object.isFrozen(plan.capabilities[0].source)).toBe(true);
     expect(renderPreview(plan)).toContain('Package manager: bun');
     expect(renderPreview(plan)).toContain('Install: enabled');
+  });
+
+  it('previews concrete commands, artifact identities, and confirmation actions', () => {
+    const plan = normalizeInteractiveInput({
+      target: './demo',
+      packageManager: 'pnpm',
+      coreVersion: '1.2.3',
+      coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
+      coreIntegrity: 'sha512-core',
+    });
+
+    const preview = renderPreview(plan);
+    expect(preview).toContain(
+      'Scaffold command: pnpm dlx @nestjs/cli@11.0.0 new demo --package-manager pnpm --strict --skip-install --skip-git',
+    );
+    expect(preview).toContain('Install command: pnpm install');
+    expect(preview).toContain('Source: registry @nest-base/core@1.2.3');
+    expect(preview).toContain('Version: 1.2.3');
+    expect(preview).toContain('Integrity: sha512-core');
+    expect(preview).toContain(
+      'Action: confirm to create files and install packages',
+    );
   });
 
   it('requires an explicit supported manager in CI and never infers it', () => {
@@ -108,5 +132,14 @@ describe('create-nest-base package manager adapter', () => {
         resolveExecutable: () => undefined,
       }),
     ).toThrow('pnpm executable is unavailable');
+  });
+
+  it('uses the production PATH resolver and rejects a missing manager without injection', () => {
+    expect(
+      resolveExecutableOnPath('__create_nest_base_missing_manager__'),
+    ).toBe(undefined);
+    expect(() => createPackageManagerAdapter('yarn')).toThrow(
+      'executable is unavailable',
+    );
   });
 });

@@ -11,7 +11,6 @@ import {
   type TargetFileSystem,
 } from './preflight.js';
 import {
-  buildScaffoldCommand,
   verifyVanillaScaffold,
   type ScaffoldCommand,
   type ScaffoldFileSystem,
@@ -39,6 +38,11 @@ import {
   rollbackOwnedWrites,
   type MetadataFileSystem,
 } from './metadata.js';
+import {
+  createPackageManagerAdapter,
+  type InstallCommand,
+  type PackageManagerAdapter,
+} from './install.js';
 
 export interface CliPipelineDependencies {
   fileSystem: TargetFileSystem;
@@ -49,7 +53,8 @@ export interface CliPipelineDependencies {
   scaffold: (command: ScaffoldCommand, cwd: string) => Promise<void>;
   scaffoldFileSystem: ScaffoldFileSystem;
   metadataFileSystem?: MetadataFileSystem;
-  install: (command: { cwd: string; args: ['install'] }) => Promise<void>;
+  install: (command: InstallCommand) => Promise<void>;
+  packageManagerAdapter?: PackageManagerAdapter;
 }
 
 export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
@@ -290,9 +295,12 @@ async function executePipeline(
   }
 
   const projectName = basename(preflight.target);
+  const packageManagerAdapter =
+    dependencies.packageManagerAdapter ??
+    createPackageManagerAdapter(plan.packageManager);
   if (!preflight.existing || !args.retry)
     await dependencies.scaffold(
-      buildScaffoldCommand(projectName),
+      packageManagerAdapter.scaffoldCommand(projectName),
       dirname(preflight.target),
     );
   verifyVanillaScaffold(preflight.target, dependencies.scaffoldFileSystem);
@@ -303,7 +311,10 @@ async function executePipeline(
   if (metadata && metadataFileSystem)
     applyOwnedWrites(metadata, metadataFileSystem);
   try {
-    await dependencies.install({ cwd: preflight.target, args: ['install'] });
+    if (plan.installEnabled)
+      await dependencies.install(
+        packageManagerAdapter.installCommand(preflight.target),
+      );
   } catch (error) {
     if (metadata && metadataFileSystem) {
       const rollback = rollbackOwnedWrites(metadata, metadataFileSystem);
@@ -373,12 +384,15 @@ export function createDefaultPipelineDependencies(
     },
     metadataFileSystem: createMetadataFileSystem(),
     install: async (command) => {
-      const process = Bun.spawn(['bun', ...command.args], {
+      if (!command.executable)
+        throw new Error('Package manager executable is unavailable.');
+      const process = Bun.spawn([command.executable, ...command.args], {
         cwd: command.cwd,
         stdout: 'inherit',
         stderr: 'inherit',
       });
-      if ((await process.exited) !== 0) throw new Error('Bun install failed.');
+      if ((await process.exited) !== 0)
+        throw new Error(`${command.executable} install failed.`);
     },
   };
 }

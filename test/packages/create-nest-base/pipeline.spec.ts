@@ -9,6 +9,7 @@ import {
 } from '../../../packages/create-nest-base/cli';
 import { createMetadataFileSystem } from '../../../packages/create-nest-base/metadata';
 import type { CliPipelineDependencies } from '../../../packages/create-nest-base/cli';
+import { createPackageManagerAdapter } from '../../../packages/create-nest-base/install';
 
 const bytes = new TextEncoder().encode('packed-artifact');
 const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
@@ -448,6 +449,34 @@ describe('create-nest-base CLI pipeline', () => {
       'consumer',
       'scaffold:@nestjs/cli@11.0.0 new demo --package-manager bun --strict --skip-install --skip-git',
       `install:${target}`,
+    ]);
+  });
+
+  it('executes the selected manager and skips the final install when disabled', async () => {
+    const calls: string[] = [];
+    await runCli(
+      { ...args, packageManager: 'npm', skipInstall: true },
+      {
+        ...dependencies({
+          packageManagerAdapter: createPackageManagerAdapter('npm', {
+            platform: 'linux',
+            resolveExecutable: (command) => command,
+          }),
+          scaffold: (command) => {
+            calls.push(`${command.executable}:${command.args.join(' ')}`);
+            return Promise.resolve();
+          },
+          install: () => {
+            calls.push('install');
+            return Promise.resolve();
+          },
+          metadataFileSystem: undefined,
+        }),
+      },
+    );
+
+    expect(calls).toEqual([
+      'npx:@nestjs/cli@11.0.0 new demo --package-manager npm --strict --skip-install --skip-git',
     ]);
   });
 

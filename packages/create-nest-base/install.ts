@@ -33,6 +33,40 @@ const launchers: Record<PackageManager, string[]> = {
   bun: ['bunx'],
 };
 
+export function describePackageManagerCommands(
+  manager: PackageManager,
+  projectName: string,
+): {
+  scaffold: { executable: string; args: string[] };
+  install: { executable: string; args: ['install'] };
+} {
+  const extension =
+    manager === 'npm' && process.platform === 'win32' ? '.cmd' : '';
+  return {
+    scaffold: {
+      executable: `${launchers[manager][0]}${extension}`,
+      args: [
+        ...launchers[manager].slice(1),
+        '@nestjs/cli@11.0.0',
+        'new',
+        projectName,
+        '--package-manager',
+        manager,
+        '--strict',
+        '--skip-install',
+        '--skip-git',
+      ],
+    },
+    install: { executable: `${manager}${extension}`, args: ['install'] },
+  };
+}
+
+export function resolveExecutableOnPath(
+  executable: string,
+): string | undefined {
+  return Bun.which(executable) ?? undefined;
+}
+
 export function createPackageManagerAdapter(
   manager: PackageManager,
   options: PackageManagerAdapterOptions = {},
@@ -43,7 +77,7 @@ export function createPackageManagerAdapter(
     manager === 'npm' && (options.platform ?? process.platform) === 'win32'
       ? '.cmd'
       : '';
-  const resolver = options.resolveExecutable ?? ((executable) => executable);
+  const resolver = options.resolveExecutable ?? resolveExecutableOnPath;
   const launcher = resolveRequiredExecutable(
     `${launchers[manager][0]}${extension}`,
     resolver,

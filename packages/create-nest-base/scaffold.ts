@@ -14,9 +14,9 @@ export function buildScaffoldCommand(
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(projectName)) {
     throw new Error('Project name is invalid.');
   }
-  return createPackageManagerAdapter(packageManager).scaffoldCommand(
-    projectName,
-  );
+  return createPackageManagerAdapter(packageManager, {
+    resolveExecutable: (executable) => executable,
+  }).scaffoldCommand(projectName);
 }
 
 export interface ScaffoldFileSystem {
