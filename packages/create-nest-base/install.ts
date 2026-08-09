@@ -82,10 +82,6 @@ export function createPackageManagerAdapter(
     `${launchers[manager][0]}${extension}`,
     resolver,
   );
-  const executable = resolveRequiredExecutable(
-    `${manager}${extension}`,
-    resolver,
-  );
   return {
     manager,
     scaffoldCommand(projectName) {
@@ -106,7 +102,14 @@ export function createPackageManagerAdapter(
     },
     installCommand(cwd) {
       if (!cwd.trim()) throw new Error('Install target CWD is required.');
-      return { executable, cwd, args: ['install'] };
+      return {
+        executable: resolveRequiredExecutable(
+          `${manager}${extension}`,
+          resolver,
+        ),
+        cwd,
+        args: ['install'],
+      };
     },
   };
 }

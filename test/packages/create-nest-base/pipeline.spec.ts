@@ -480,6 +480,58 @@ describe('create-nest-base CLI pipeline', () => {
     ]);
   });
 
+  it('scaffolds with an unavailable install manager when installation is disabled', async () => {
+    const calls: string[] = [];
+    await runCli(
+      { ...args, packageManager: 'npm', skipInstall: true },
+      {
+        ...dependencies({
+          packageManagerAdapter: createPackageManagerAdapter('npm', {
+            platform: 'linux',
+            resolveExecutable: (command) =>
+              command === 'npx' ? command : undefined,
+          }),
+          scaffold: (command) => {
+            calls.push(`${command.executable}:${command.args.join(' ')}`);
+            return Promise.resolve();
+          },
+          install: () => {
+            calls.push('install');
+            return Promise.resolve();
+          },
+          metadataFileSystem: undefined,
+        }),
+      },
+    );
+
+    expect(calls).toEqual([
+      'npx:@nestjs/cli@11.0.0 new demo --package-manager npm --strict --skip-install --skip-git',
+    ]);
+  });
+
+  it('fails clearly when installation is enabled and the install manager is unavailable', async () => {
+    let message = 'pipeline unexpectedly succeeded';
+    try {
+      await runCli(
+        { ...args, packageManager: 'npm' },
+        {
+          ...dependencies({
+            packageManagerAdapter: createPackageManagerAdapter('npm', {
+              platform: 'linux',
+              resolveExecutable: (command) =>
+                command === 'npx' ? command : undefined,
+            }),
+            metadataFileSystem: undefined,
+          }),
+        },
+      );
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain('npm executable is unavailable.');
+  });
+
   it('allows an accepted non-CI confirmation and performs no writes when cancelled', async () => {
     const interactiveArgs = {
       ...args,
