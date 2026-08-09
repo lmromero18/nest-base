@@ -34,6 +34,24 @@ const LEGACY_MIRROR_KEYS = [
   'manifestPath',
   'capabilities',
 ];
+const MANIFEST_BASE_KEYS = [
+  'schemaVersion',
+  'wizardVersion',
+  'target',
+  'registryRevision',
+  'resolvedEntries',
+  'dependencySections',
+  'ownedPaths',
+  'hashes',
+  'hashRule',
+];
+const MANIFEST_PROVENANCE_KEYS = [
+  'packageManager',
+  'launcher',
+  'installEnabled',
+  'scaffoldArgs',
+  'installArgs',
+];
 // The manifest hash is calculated from the canonical manifest with its own
 // hash entry omitted. This explicit rule prevents circular self-hashing.
 const MANIFEST_HASH_RULE = 'manifest-with-self-hash-entry-omitted';
@@ -152,6 +170,15 @@ export function buildMetadataPreview(
       if (
         parsed.registryRevision !== plan.registryRevision ||
         !sameJson(parsed.resolvedEntries, plan.capabilities)
+      )
+        throw new Error('Metadata drift detected in manifest.');
+      if (
+        hasManifestProvenance(parsed) &&
+        (parsed.packageManager !== plan.packageManager ||
+          parsed.launcher !== commands.scaffold.executable ||
+          parsed.installEnabled !== plan.installEnabled ||
+          !sameJson(parsed.scaffoldArgs, commands.scaffold.args) ||
+          !sameJson(parsed.installArgs, commands.install.args))
       )
         throw new Error('Metadata drift detected in manifest.');
     } else if (
@@ -515,35 +542,30 @@ function validateExistingMirror(value: unknown): void {
 }
 
 function validateManifest(value: JsonObject): void {
-  const baseKeys = [
-    'schemaVersion',
-    'wizardVersion',
-    'target',
-    'registryRevision',
-    'resolvedEntries',
-    'dependencySections',
-    'ownedPaths',
-    'hashes',
-    'hashRule',
-  ];
-  const provenanceKeys = [
-    'packageManager',
-    'launcher',
-    'installEnabled',
-    'scaffoldArgs',
-    'installArgs',
-  ];
+  const hasProvenance = hasManifestProvenance(value);
   const keys =
     value.schemaVersion === 1
-      ? baseKeys
+      ? hasProvenance
+        ? [...MANIFEST_BASE_KEYS, ...MANIFEST_PROVENANCE_KEYS]
+        : MANIFEST_BASE_KEYS
       : value.schemaVersion === 2
-        ? [...baseKeys.slice(0, 3), ...provenanceKeys, ...baseKeys.slice(3)]
+        ? [
+            ...MANIFEST_BASE_KEYS.slice(0, 3),
+            ...MANIFEST_PROVENANCE_KEYS,
+            ...MANIFEST_BASE_KEYS.slice(3),
+          ]
         : [];
   if (
     keys.length === 0 ||
     Object.keys(value).some((key) => !keys.includes(key))
   )
     throw new Error('Manifest contains unknown fields.');
+  if (
+    value.schemaVersion === 1 &&
+    hasProvenance &&
+    MANIFEST_PROVENANCE_KEYS.some((key) => !(key in value))
+  )
+    throw new Error('Manifest schema is invalid.');
   if (
     (value.schemaVersion !== 1 && value.schemaVersion !== 2) ||
     !Array.isArray(value.resolvedEntries) ||
@@ -555,6 +577,10 @@ function validateManifest(value: JsonObject): void {
       (value.ownedPaths as string[]).slice().sort().join('|')
   )
     throw new Error('Manifest schema is invalid.');
+}
+
+function hasManifestProvenance(value: JsonObject): boolean {
+  return MANIFEST_PROVENANCE_KEYS.some((key) => key in value);
 }
 
 function readSection(value: unknown, section: string): Record<string, string> {
