@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import { runCli, runCliPipeline } from '../../../packages/create-nest-base/cli';
 import { createMetadataFileSystem } from '../../../packages/create-nest-base/metadata';
@@ -6,13 +8,18 @@ import type { CliPipelineDependencies } from '../../../packages/create-nest-base
 
 const bytes = new TextEncoder().encode('packed-artifact');
 const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+const root = join(tmpdir(), 'create-nest-base-pipeline');
+const target = join(root, 'demo');
+const defaultTarget = join(root, 'default-demo');
+const packagePath = join(target, 'package.json');
+const manifestPath = join(target, '.nest-base', 'manifest.json');
 
 const args = {
   ci: true,
   dryRun: false,
   yes: true,
   help: false,
-  target: 'C:\\work\\demo',
+  target,
   coreVersion: '1.0.0',
   coreSource: '@nest-base/core@1.0.0',
   coreIntegrity: integrity as `sha512-${string}`,
@@ -24,7 +31,7 @@ describe('create-nest-base CLI pipeline', () => {
   ): CliPipelineDependencies {
     return {
       fileSystem: {
-        exists: (path: string) => path === 'C:\\work',
+        exists: (path: string) => path === root,
         isDirectory: () => true,
         entries: () => [],
         canWrite: () => true,
@@ -49,7 +56,7 @@ describe('create-nest-base CLI pipeline', () => {
   it('runs metadata-enabled CLI flow and compensates on install failure without removing failed target', async () => {
     const targetExists = true;
     const files: Record<string, string> = {
-      'C:\\work\\demo\\package.json': JSON.stringify({ name: 'demo' }),
+      [packagePath]: JSON.stringify({ name: 'demo' }),
     };
     const binaryFiles: Record<string, Uint8Array> = {};
     const metadataFileSystem = {
@@ -75,8 +82,7 @@ describe('create-nest-base CLI pipeline', () => {
         dependencies({
           fileSystem: {
             exists: (path: string) =>
-              path === 'C:\\work' ||
-              (path === 'C:\\work\\demo' && targetExists),
+              path === root || (path === target && targetExists),
             isDirectory: () => true,
             entries: () => [],
             canWrite: () => true,
@@ -89,16 +95,16 @@ describe('create-nest-base CLI pipeline', () => {
       message = error instanceof Error ? error.message : String(error);
     }
     expect(message).toContain('Rollback completed');
-    expect(JSON.parse(files['C:\\work\\demo\\package.json'])).toMatchObject({
+    expect(JSON.parse(files[packagePath])).toMatchObject({
       name: 'demo',
     });
-    expect(files['C:\\work\\demo\\.nest-base\\manifest.json']).toBeUndefined();
+    expect(files[manifestPath]).toBeUndefined();
     expect(targetExists).toBe(true);
   });
 
   it('reports a real leftover and recovery diagnostic when install mutates an owned file', async () => {
     const files: Record<string, string> = {
-      'C:\\work\\demo\\package.json': JSON.stringify({ name: 'demo' }),
+      [packagePath]: JSON.stringify({ name: 'demo' }),
     };
     const binaryFiles: Record<string, Uint8Array> = {};
     const metadataFileSystem = {
@@ -124,7 +130,7 @@ describe('create-nest-base CLI pipeline', () => {
         dependencies({
           metadataFileSystem,
           install: () => {
-            files['C:\\work\\demo\\package.json'] = 'changed by install';
+            files[packagePath] = 'changed by install';
             return Promise.reject(new Error('install failed'));
           },
         }),
@@ -132,8 +138,8 @@ describe('create-nest-base CLI pipeline', () => {
     } catch (error) {
       message = error instanceof Error ? error.message : String(error);
     }
-    expect(message).toContain('Leftovers: C:\\work\\demo\\package.json');
-    expect(files['C:\\work\\demo\\package.json']).toBe('changed by install');
+    expect(message).toContain(`Leftovers: ${packagePath}`);
+    expect(files[packagePath]).toBe('changed by install');
   });
 
   it('retries a preserved scaffold without invoking scaffold again', async () => {
@@ -143,7 +149,7 @@ describe('create-nest-base CLI pipeline', () => {
       dependencies({
         metadataFileSystem: undefined,
         fileSystem: {
-          exists: (path) => path === 'C:\\work' || path === 'C:\\work\\demo',
+          exists: (path) => path === root || path === target,
           isDirectory: () => true,
           entries: () => ['package.json'],
           canWrite: () => true,
@@ -164,7 +170,7 @@ describe('create-nest-base CLI pipeline', () => {
     return expect(
       runCli(args, {
         fileSystem: {
-          exists: (path) => path === 'C:\\work',
+          exists: (path) => path === root,
           isDirectory: () => true,
           entries: () => [],
           canWrite: () => true,
@@ -191,11 +197,11 @@ describe('create-nest-base CLI pipeline', () => {
           dryRun: false,
           yes: false,
           help: false,
-          target: 'C:\\work\\default-demo',
+          target: defaultTarget,
         },
         {
           fileSystem: {
-            exists: (path) => path === 'C:\\work',
+            exists: (path) => path === root,
             isDirectory: () => true,
             entries: () => [],
             canWrite: () => true,
@@ -228,7 +234,7 @@ describe('create-nest-base CLI pipeline', () => {
         fileSystem: {
           exists: (path) => {
             if (!calls.includes('preflight')) calls.push('preflight');
-            return path === 'C:\\work';
+            return path === root;
           },
           isDirectory: () => true,
           entries: () => [],
@@ -327,7 +333,7 @@ describe('create-nest-base CLI pipeline', () => {
       fileSystem: {
         exists: (path) => {
           if (!calls.includes('preflight')) calls.push('preflight');
-          return path === 'C:\\work';
+          return path === root;
         },
         isDirectory: () => true,
         entries: () => [],
@@ -371,7 +377,7 @@ describe('create-nest-base CLI pipeline', () => {
       'consumer',
       'confirm',
       'scaffold:@nestjs/cli@11.0.0 new demo --strict --skip-install --skip-git',
-      'install:C:\\work\\demo',
+      `install:${target}`,
     ]);
   });
 

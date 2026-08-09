@@ -1,5 +1,10 @@
+import { tmpdir } from 'node:os';
+import { dirname, join, parse, sep } from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import { preflightTarget } from '../../../packages/create-nest-base/preflight';
+
+const target = join(tmpdir(), 'create-nest-base-preflight', 'demo');
+const parent = dirname(target);
 
 describe('create-nest-base preflight', () => {
   it('rejects empty, relative, and traversal targets before resolve or filesystem access', () => {
@@ -23,8 +28,12 @@ describe('create-nest-base preflight', () => {
       },
     };
 
-    for (const target of ['', 'relative-target', 'C:\\work\\..\\demo']) {
-      expect(() => preflightTarget(target, fileSystem)).toThrow(
+    for (const invalidTarget of [
+      '',
+      'relative-target',
+      `${parent}${sep}..${sep}demo`,
+    ]) {
+      expect(() => preflightTarget(invalidTarget, fileSystem)).toThrow(
         'unsafe target',
       );
     }
@@ -32,9 +41,11 @@ describe('create-nest-base preflight', () => {
   });
 
   it('rejects filesystem roots and non-empty targets before side effects', () => {
-    expect(() => preflightTarget('C:\\')).toThrow('unsafe target');
+    expect(() => preflightTarget(parse(tmpdir()).root)).toThrow(
+      'unsafe target',
+    );
     expect(() =>
-      preflightTarget('C:\\work\\demo', {
+      preflightTarget(target, {
         exists: () => true,
         isDirectory: () => true,
         entries: () => ['package.json'],
@@ -44,25 +55,25 @@ describe('create-nest-base preflight', () => {
   });
 
   it('accepts a missing child beneath an existing directory', () => {
-    const result = preflightTarget('C:\\work\\demo', {
-      exists: (path) => path === 'C:\\work',
+    const result = preflightTarget(target, {
+      exists: (path) => path === parent,
       isDirectory: () => true,
       entries: () => [],
       canWrite: () => true,
     });
 
-    expect(result.target).toMatch(/work[\\/]demo$/);
+    expect(result.target).toBe(target);
   });
 
   it('requires Bun 1.3.14 or newer', () => {
-    expect(() =>
-      preflightTarget('C:\\work\\demo', undefined, '1.3.13'),
-    ).toThrow('Bun 1.3.14');
+    expect(() => preflightTarget(target, undefined, '1.3.13')).toThrow(
+      'Bun 1.3.14',
+    );
     expect(
       preflightTarget(
-        'C:\\work\\demo',
+        target,
         {
-          exists: (path) => path === 'C:\\work',
+          exists: (path) => path === parent,
           isDirectory: () => true,
           entries: () => [],
           canWrite: () => true,
@@ -74,8 +85,8 @@ describe('create-nest-base preflight', () => {
 
   it('refuses a target that cannot be created or written', () => {
     expect(() =>
-      preflightTarget('C:\\work\\blocked', {
-        exists: (path) => path === 'C:\\work',
+      preflightTarget(join(parent, 'blocked'), {
+        exists: (path) => path === parent,
         isDirectory: () => true,
         entries: () => [],
         canWrite: () => false,

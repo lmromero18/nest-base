@@ -15,7 +15,7 @@ import type { NormalizedPlan } from '../../../packages/create-nest-base/types';
 const plan: NormalizedPlan = {
   schemaVersion: 1,
   wizardVersion: '0.1.0',
-  target: 'C:\\work\\demo',
+  target: join(tmpdir(), 'create-nest-base-metadata', 'demo'),
   registryRevision: '2026-07-27',
   capabilities: [
     {
@@ -30,6 +30,11 @@ const plan: NormalizedPlan = {
   dependencySections: { '@nest-base/core': 'dependencies' },
   previewOnly: false,
 };
+
+const packagePath = join(plan.target, 'package.json');
+const manifestPath = join(plan.target, '.nest-base', 'manifest.json');
+const loggerPath = join(plan.target, '.nest-base', 'logger.json');
+const binaryPath = join(plan.target, '.nest-base', 'artifact.tgz');
 
 function memoryFs(files: Record<string, string>): MetadataFileSystem {
   return {
@@ -46,7 +51,7 @@ function memoryFs(files: Record<string, string>): MetadataFileSystem {
 describe('create-nest-base canonical metadata', () => {
   it('builds a v1 manifest and exact package mirror while preserving root keys', () => {
     const files: Record<string, string> = {
-      'C:\\work\\demo\\package.json': JSON.stringify({
+      [packagePath]: JSON.stringify({
         name: 'demo',
         scripts: { test: 'bun test' },
       }),
@@ -236,16 +241,16 @@ describe('create-nest-base canonical metadata', () => {
 
   it('is verify-only for the same plan and refuses drift, unknown fields, and conflicts', () => {
     const files: Record<string, string> = {
-      'C:\\work\\demo\\package.json': JSON.stringify({ name: 'demo' }),
+      [packagePath]: JSON.stringify({ name: 'demo' }),
     };
     const fs = memoryFs(files);
     const first = buildMetadataPreview(plan, fs);
     applyOwnedWrites(first, fs);
     expect(buildMetadataPreview(plan, fs).writes).toEqual([]);
 
-    files['C:\\work\\demo\\package.json'] = JSON.stringify({ name: 'changed' });
+    files[packagePath] = JSON.stringify({ name: 'changed' });
     expect(() => buildMetadataPreview(plan, fs)).toThrow('drift');
-    files['C:\\work\\demo\\package.json'] = JSON.stringify({
+    files[packagePath] = JSON.stringify({
       name: 'demo',
       nestBase: {
         schemaVersion: 1,
@@ -260,7 +265,7 @@ describe('create-nest-base canonical metadata', () => {
 
   it('refuses a changed source, version, or registry revision instead of treating it as an upgrade', () => {
     const files: Record<string, string> = {
-      'C:\\work\\demo\\package.json': JSON.stringify({ name: 'demo' }),
+      [packagePath]: JSON.stringify({ name: 'demo' }),
     };
     const fs = memoryFs(files);
     applyOwnedWrites(buildMetadataPreview(plan, fs), fs);
@@ -286,7 +291,7 @@ describe('create-nest-base canonical metadata', () => {
 
   it('refuses an existing dependency value that is not owned by the plan', () => {
     const fs = memoryFs({
-      'C:\\work\\demo\\package.json': JSON.stringify({
+      [packagePath]: JSON.stringify({
         name: 'demo',
         dependencies: { '@nest-base/core': '^1.0.0' },
       }),
@@ -296,15 +301,15 @@ describe('create-nest-base canonical metadata', () => {
 
   it('refuses a deleted package.json between preview and apply', () => {
     const files: Record<string, string> = {
-      'C:\\work\\demo\\package.json': JSON.stringify({ name: 'demo' }),
+      [packagePath]: JSON.stringify({ name: 'demo' }),
     };
     const fs = memoryFs(files);
     const preview = buildMetadataPreview(plan, fs);
-    delete files['C:\\work\\demo\\package.json'];
+    delete files[packagePath];
 
     expect(() => applyOwnedWrites(preview, fs)).toThrow('deleted before write');
-    expect(files['C:\\work\\demo\\package.json']).toBeUndefined();
-    expect(files['C:\\work\\demo\\.nest-base\\manifest.json']).toBeUndefined();
+    expect(files[packagePath]).toBeUndefined();
+    expect(files[manifestPath]).toBeUndefined();
   });
 
   it('refuses package conflicts across every dependency section', () => {
@@ -314,7 +319,7 @@ describe('create-nest-base canonical metadata', () => {
       'peerDependencies',
     ]) {
       const fs = memoryFs({
-        'C:\\work\\demo\\package.json': JSON.stringify({
+        [packagePath]: JSON.stringify({
           name: 'demo',
           [section]: { '@nest-base/core': '1.0.0' },
         }),
@@ -326,19 +331,19 @@ describe('create-nest-base canonical metadata', () => {
 
   it('does not write during preview and rejects a race before mutation', () => {
     const files: Record<string, string> = {
-      'C:\\work\\demo\\package.json': JSON.stringify({ name: 'demo' }),
+      [packagePath]: JSON.stringify({ name: 'demo' }),
     };
     const fs = memoryFs(files);
     const preview = buildMetadataPreview(plan, fs);
-    expect(files['C:\\work\\demo\\.nest-base\\manifest.json']).toBeUndefined();
-    files['C:\\work\\demo\\package.json'] = JSON.stringify({ name: 'raced' });
+    expect(files[manifestPath]).toBeUndefined();
+    files[packagePath] = JSON.stringify({ name: 'raced' });
     expect(() => applyOwnedWrites(preview, fs)).toThrow('changed');
-    expect(files['C:\\work\\demo\\.nest-base\\manifest.json']).toBeUndefined();
+    expect(files[manifestPath]).toBeUndefined();
   });
 
   it('compensates only owned files and reports leftovers on rollback failure', () => {
     const files: Record<string, string> = {
-      'C:\\work\\demo\\package.json': JSON.stringify({ name: 'demo' }),
+      [packagePath]: JSON.stringify({ name: 'demo' }),
     };
     const fs = memoryFs(files);
     const preview = buildMetadataPreview(plan, fs);
@@ -348,23 +353,19 @@ describe('create-nest-base canonical metadata', () => {
       writeFile: (path, content) => {
         writes += 1;
         if (writes === 2) {
-          files['C:\\work\\demo\\package.json'] =
-            'user changed this during rollback';
+          files[packagePath] = 'user changed this during rollback';
           throw new Error('disk full');
         }
         fs.writeFile(path, content);
       },
     };
     expect(() => applyOwnedWrites(preview, failingFs)).toThrow('Leftovers');
-    expect(files['C:\\work\\demo\\package.json']).toBe(
-      'user changed this during rollback',
-    );
-    expect(files['C:\\work\\demo\\.nest-base\\manifest.json']).toBeUndefined();
+    expect(files[packagePath]).toBe('user changed this during rollback');
+    expect(files[manifestPath]).toBeUndefined();
   });
 
   it('preserves a concurrent binary replacement during compensation', () => {
-    const binaryPath = 'C:\\work\\demo\\.nest-base\\artifact.tgz';
-    const metadataPath = 'C:\\work\\demo\\.nest-base\\manifest.json';
+    const metadataPath = manifestPath;
     const writtenBytes = new TextEncoder().encode('wizard artifact');
     const replacementBytes = new TextEncoder().encode('user replacement');
     const bytes: Record<string, Uint8Array> = {};
@@ -406,7 +407,6 @@ describe('create-nest-base canonical metadata', () => {
   });
 
   it('preserves a binary replacement made after ownership verification', () => {
-    const binaryPath = 'C:\\work\\demo\\.nest-base\\artifact.tgz';
     const writtenBytes = new TextEncoder().encode('wizard artifact');
     const replacementBytes = new TextEncoder().encode('user replacement');
     const bytes: Record<string, Uint8Array> = { [binaryPath]: writtenBytes };
@@ -452,7 +452,6 @@ describe('create-nest-base canonical metadata', () => {
   });
 
   it('restores the original path when quarantine reading fails', () => {
-    const binaryPath = 'C:\\work\\demo\\.nest-base\\artifact.tgz';
     const writtenBytes = new TextEncoder().encode('wizard artifact');
     const bytes: Record<string, Uint8Array> = { [binaryPath]: writtenBytes };
     const fs: MetadataFileSystem = {
@@ -488,7 +487,6 @@ describe('create-nest-base canonical metadata', () => {
   });
 
   it('reports the quarantine path when cleanup and restoration both fail', () => {
-    const binaryPath = 'C:\\work\\demo\\.nest-base\\artifact.tgz';
     const writtenBytes = new TextEncoder().encode('wizard artifact');
     const bytes: Record<string, Uint8Array> = { [binaryPath]: writtenBytes };
     const fs: MetadataFileSystem = {
@@ -532,7 +530,6 @@ describe('create-nest-base canonical metadata', () => {
   });
 
   it('preserves a destination replaced between the restore check and attempt', () => {
-    const binaryPath = 'C:\\work\\demo\\.nest-base\\artifact.tgz';
     const writtenBytes = new TextEncoder().encode('wizard artifact');
     const replacementBytes = new TextEncoder().encode('user replacement');
     const quarantinePathPrefix = `${binaryPath}.nest-base-rollback-`;
@@ -599,8 +596,8 @@ describe('create-nest-base canonical metadata', () => {
       },
     };
     const files: Record<string, string> = {
-      'C:\\work\\demo\\package.json': JSON.stringify({ name: 'demo' }),
-      'C:\\work\\demo\\.nest-base\\logger.json': 'original logger',
+      [packagePath]: JSON.stringify({ name: 'demo' }),
+      [loggerPath]: 'original logger',
     };
     const base = memoryFs(files);
     const preview = buildMetadataPreview(racePlan, base);
@@ -620,17 +617,14 @@ describe('create-nest-base canonical metadata', () => {
       ...base,
       writeFile: (path, content) => {
         packageWrites += 1;
-        if (packageWrites === 1)
-          files['C:\\work\\demo\\.nest-base\\logger.json'] = 'raced bytes';
+        if (packageWrites === 1) files[loggerPath] = 'raced bytes';
         base.writeFile(path, content);
       },
     };
     expect(() => applyOwnedWrites(preview, racedFs)).toThrow(
       'changed before write',
     );
-    expect(files['C:\\work\\demo\\.nest-base\\logger.json']).toBe(
-      'raced bytes',
-    );
+    expect(files[loggerPath]).toBe('raced bytes');
   });
 
   it('refuses changed capability-owned output bytes recorded by the manifest', () => {
@@ -653,16 +647,14 @@ describe('create-nest-base canonical metadata', () => {
       },
     };
     const files: Record<string, string> = {
-      'C:\\work\\demo\\package.json': JSON.stringify({ name: 'demo' }),
+      [packagePath]: JSON.stringify({ name: 'demo' }),
     };
     const fs = memoryFs(files);
     applyOwnedWrites(buildMetadataPreview(loggerPlan, fs), fs);
-    files['C:\\work\\demo\\.nest-base\\logger.json'] = 'user changed bytes';
+    files[loggerPath] = 'user changed bytes';
 
     expect(() => buildMetadataPreview(loggerPlan, fs)).toThrow('changed');
-    expect(files['C:\\work\\demo\\.nest-base\\logger.json']).toBe(
-      'user changed bytes',
-    );
+    expect(files[loggerPath]).toBe('user changed bytes');
   });
 
   it('uses the real adapter to remove an owned file while preserving unrelated files', () => {
