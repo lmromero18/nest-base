@@ -78,6 +78,34 @@ function packCoreInto(directory: string): string {
   return resolve(directory, archive);
 }
 
+function packHttpCoreInto(directory: string): string {
+  const httpCoreRoot = resolve(packageRoot, '../http-core');
+  rmSync(resolve(httpCoreRoot, 'dist'), { recursive: true, force: true });
+  rmSync(resolve(httpCoreRoot, '.build-work'), {
+    recursive: true,
+    force: true,
+  });
+  const build = run([bunExecutable, 'build.ts'], httpCoreRoot);
+  expect(build.exitCode, output(build)).toBe(0);
+  const result = run(
+    [
+      npmExecutable,
+      'pack',
+      '--ignore-scripts',
+      '--json',
+      '--pack-destination',
+      directory,
+    ],
+    httpCoreRoot,
+  );
+  expect(result.exitCode, output(result)).toBe(0);
+  const report = JSON.parse(result.stdout.toString()) as PackReport[];
+  const archive = report[0]?.filename;
+  expect(archive).toMatch(/\.tgz$/);
+  if (!archive) throw new Error('HTTP-core archive was not produced.');
+  return resolve(directory, archive);
+}
+
 function createConsumer(): string {
   return mkdtempSync(resolve(tmpdir(), 'create-nest-base-consumer-'));
 }
@@ -136,6 +164,48 @@ function runPackedCi(workspace: string, target: string, coreArchive: string) {
       '--core-integrity',
       integrity,
       '--retry',
+    ],
+    workspace,
+    { ...process.env, CI: '1' },
+  );
+}
+
+function runPackedHttpCoreCi(
+  workspace: string,
+  target: string,
+  coreArchive: string,
+  httpCoreArchive: string,
+) {
+  const coreBytes = new Uint8Array(readFileSync(coreArchive));
+  const httpCoreBytes = new Uint8Array(readFileSync(httpCoreArchive));
+  return run(
+    [
+      bunExecutable,
+      'x',
+      '--bun',
+      'create-nest-base',
+      '--ci',
+      '--package-manager',
+      'bun',
+      '--target',
+      target,
+      '--select',
+      'core-crud,http-core',
+      '--yes',
+      '--core-version',
+      '0.1.0',
+      '--core-source',
+      coreArchive,
+      '--core-integrity',
+      `sha512-${createHash('sha512').update(coreBytes).digest('base64')}`,
+      '--http-core-version',
+      '0.1.0',
+      '--http-core-source',
+      httpCoreArchive,
+      '--http-core-integrity',
+      `sha512-${createHash('sha512').update(httpCoreBytes).digest('base64')}`,
+      '--retry',
+      '--skip-install',
     ],
     workspace,
     { ...process.env, CI: '1' },
@@ -250,6 +320,49 @@ describe('create-nest-base packed consumer', () => {
       rmSync(workspace, { recursive: true, force: true });
       rmSync(wizardArchiveDirectory, { recursive: true, force: true });
       rmSync(coreArchiveDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('runs the packed wizard HTTP-core gate with packed core through ESM and CJS', () => {
+    const workspace = createConsumer();
+    const wizardArchiveDirectory = createConsumer();
+    const coreArchiveDirectory = createConsumer();
+    const httpCoreArchiveDirectory = createConsumer();
+    try {
+      const wizardArchive = packInto(wizardArchiveDirectory);
+      const coreArchive = packCoreInto(coreArchiveDirectory);
+      const httpCoreArchive = packHttpCoreInto(httpCoreArchiveDirectory);
+      const install = run(['bun', 'add', wizardArchive], workspace);
+      expect(install.exitCode, output(install)).toBe(0);
+
+      const target = resolve(workspace, 'generated-http-core-app');
+      mkdirSync(resolve(target, 'src'), { recursive: true });
+      mkdirSync(resolve(target, 'test'), { recursive: true });
+      writeFileSync(
+        resolve(target, 'package.json'),
+        JSON.stringify({ name: 'generated-http-core-app' }),
+      );
+      const result = runPackedHttpCoreCi(
+        workspace,
+        target,
+        coreArchive,
+        httpCoreArchive,
+      );
+
+      expect(result.exitCode, output(result)).toBe(0);
+      expect(output(result)).toContain('http-core');
+      const packageJson = JSON.parse(
+        readFileSync(resolve(target, 'package.json'), 'utf8'),
+      ) as { nestBase: { capabilities: Array<{ id: string }> } };
+      expect(packageJson.nestBase.capabilities.map(({ id }) => id)).toEqual([
+        'core-crud',
+        'http-core',
+      ]);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(wizardArchiveDirectory, { recursive: true, force: true });
+      rmSync(coreArchiveDirectory, { recursive: true, force: true });
+      rmSync(httpCoreArchiveDirectory, { recursive: true, force: true });
     }
   });
 });

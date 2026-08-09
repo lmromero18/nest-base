@@ -41,7 +41,9 @@ export function createConsumerManifest(
     dependencies: {
       '@nest-base/core':
         (dependencyTarballs?.has('core-crud')
-          ? pathToFileURL(dependencyTarballs.get('core-crud') as string).href
+          ? capabilityId === 'http-core'
+            ? `file:${dependencyTarballs.get('core-crud') as string}`
+            : pathToFileURL(dependencyTarballs.get('core-crud') as string).href
           : undefined) ?? (capabilityId === 'core-crud' ? fileSpec : '0.1.0'),
       ...(capabilityId === 'http-core'
         ? {

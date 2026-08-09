@@ -8,30 +8,6 @@ import {
 } from '../../../packages/create-nest-base/ux';
 import { createHttpCoreReleaseEvidence } from '../../../packages/create-nest-base/registry';
 
-const releaseEvidence = createHttpCoreReleaseEvidence({
-  package: '@nest-base/http-core',
-  version: '0.1.0',
-  integrity: `sha512-${createHash('sha512').update(new Uint8Array(64)).digest('base64')}`,
-  tarballUrl:
-    'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
-  tarballBytes: new Uint8Array(64),
-  audit: {
-    tool: 'http-core-tarball-audit',
-    package: '@nest-base/http-core',
-    version: '0.1.0',
-    artifactDigest: `sha512-${createHash('sha512').update(new Uint8Array(64)).digest('base64')}`,
-    status: 'passed',
-  },
-  consumer: {
-    tool: 'http-core-independent-consumer',
-    package: '@nest-base/http-core',
-    version: '0.1.0',
-    artifactDigest: `sha512-${createHash('sha512').update(new Uint8Array(64)).digest('base64')}`,
-    status: 'passed',
-    modes: ['esm', 'cjs'],
-  },
-});
-
 describe('create-nest-base interactive UX', () => {
   it('explains mandatory CRUD, optional logger, and unavailable future cards', () => {
     const cards = buildInteractiveCards();
@@ -66,7 +42,8 @@ describe('create-nest-base interactive UX', () => {
     expect(renderPreview(plan)).toContain('./demo');
   });
 
-  it('selects recommended HTTP core interactively and allows explicit core-only opt-out', () => {
+  it('selects recommended HTTP core interactively and allows explicit core-only opt-out', async () => {
+    const releaseEvidence = await makeReleaseEvidence();
     const recommended = normalizeInteractiveInput({
       target: './demo',
       httpCoreReleaseEvidence: releaseEvidence,
@@ -121,3 +98,35 @@ describe('create-nest-base interactive UX', () => {
     );
   });
 });
+
+async function makeReleaseEvidence() {
+  const bytes = Bun.gzipSync(new Uint8Array(1024));
+  const coreArtifact = { bytes };
+  const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+  return createHttpCoreReleaseEvidence({
+    coreArtifact,
+    independentConsumerGate: { verify: () => Promise.resolve() },
+    inspect: (artifact) =>
+      artifact === coreArtifact
+        ? { package: '@nest-base/core', version: '0.1.0' }
+        : { package: '@nest-base/http-core', version: '0.1.0' },
+    registry: (input) =>
+      Promise.resolve(
+        String(input).includes('%40nest-base%2Fhttp-core')
+          ? Response.json({
+              versions: {
+                '0.1.0': {
+                  name: '@nest-base/http-core',
+                  version: '0.1.0',
+                  dist: {
+                    tarball:
+                      'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+                    integrity,
+                  },
+                },
+              },
+            })
+          : new Response(new Blob([bytes as unknown as BlobPart])),
+      ),
+  });
+}

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'bun:test';
 import { resolveArtifact } from '../../../packages/create-nest-base/artifact-gate';
+import type { ArtifactRecord } from '../../../packages/create-nest-base/artifact-gate';
 import {
   CAPABILITY_REGISTRY,
   createRegistryArtifactLoader,
@@ -14,7 +15,7 @@ import {
 import type { HttpCoreReleaseEvidence } from '../../../packages/create-nest-base/types';
 
 describe('create-nest-base capability registry', () => {
-  it('keeps CRUD locked, exposes logger, and explains every future capability', () => {
+  it('keeps CRUD locked, exposes logger, and explains every future capability', async () => {
     expect(CAPABILITY_REGISTRY.map((entry) => entry.id)).toEqual([
       'core-crud',
       'logger',
@@ -48,30 +49,7 @@ describe('create-nest-base capability registry', () => {
     });
     expect(httpCore?.defaultIntegrity).toBeUndefined();
     expect(httpCore?.compatibility).toContain('NestJS 11');
-    const tarballBytes = new Uint8Array(64);
-    const evidence = createHttpCoreReleaseEvidence({
-      package: '@nest-base/http-core',
-      version: '0.1.0',
-      integrity: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
-      tarballUrl:
-        'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
-      tarballBytes,
-      audit: {
-        tool: 'http-core-tarball-audit',
-        package: '@nest-base/http-core',
-        version: '0.1.0',
-        artifactDigest: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
-        status: 'passed',
-      },
-      consumer: {
-        tool: 'http-core-independent-consumer',
-        package: '@nest-base/http-core',
-        version: '0.1.0',
-        artifactDigest: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
-        status: 'passed',
-        modes: ['esm', 'cjs'] as const,
-      },
-    });
+    const evidence = await createReleaseEvidence();
     expect(assertHttpCoreReleaseEvidence(evidence)).toEqual(evidence);
 
     for (const entry of CAPABILITY_REGISTRY.slice(3)) {
@@ -85,35 +63,12 @@ describe('create-nest-base capability registry', () => {
     }
   });
 
-  it('blocks stale or incomplete HTTP-core release evidence', () => {
-    const tarballBytes = new Uint8Array(64);
-    const evidence = createHttpCoreReleaseEvidence({
-      package: '@nest-base/http-core',
-      version: '0.1.0',
-      integrity: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
-      tarballUrl:
-        'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
-      tarballBytes,
-      audit: {
-        tool: 'http-core-tarball-audit',
-        package: '@nest-base/http-core',
-        version: '0.1.0',
-        artifactDigest: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
-        status: 'passed',
-      },
-      consumer: {
-        tool: 'http-core-independent-consumer',
-        package: '@nest-base/http-core',
-        version: '0.1.0',
-        artifactDigest: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
-        status: 'passed',
-        modes: ['esm', 'cjs'] as const,
-      },
-    });
+  it('blocks stale, tampered, and self-attested HTTP-core release evidence', async () => {
+    const evidence = await createReleaseEvidence();
     expect(bindHttpCoreReleaseEvidence(evidence)).toEqual(evidence);
     expect(() =>
       bindHttpCoreReleaseEvidence({ ...evidence, version: '0.1.1' }),
-    ).toThrow('mismatch');
+    ).toThrow('independently bound');
     expect(() =>
       bindHttpCoreReleaseEvidence({
         ...evidence,
@@ -124,13 +79,13 @@ describe('create-nest-base capability registry', () => {
           ] as unknown as HttpCoreReleaseEvidence['consumer']['modes'],
         },
       }),
-    ).toThrow('consumer');
+    ).toThrow('independently bound');
     expect(() =>
       bindHttpCoreReleaseEvidence({
         ...evidence,
         audit: { ...evidence.audit, artifactDigest: 'sha512-A' },
       }),
-    ).toThrow('proof');
+    ).toThrow('independently bound');
     expect(() =>
       bindHttpCoreReleaseEvidence({
         ...evidence,
@@ -139,7 +94,65 @@ describe('create-nest-base capability registry', () => {
           tool: 'false' as unknown as HttpCoreReleaseEvidence['audit']['tool'],
         },
       }),
-    ).toThrow('audit');
+    ).toThrow('independently bound');
+    expect(() =>
+      assertHttpCoreReleaseEvidence({
+        ...evidence,
+        evidenceDigest: evidence.evidenceDigest,
+      }),
+    ).toThrow('independently bound');
+  });
+
+  it('fails closed when registry metadata or bytes are stale or tampered', async () => {
+    const releaseBytes = await gzipTarball({
+      name: '@nest-base/http-core',
+      version: '0.1.0',
+    });
+    const coreArtifact = {
+      bytes: await gzipTarball({ name: '@nest-base/core', version: '0.1.0' }),
+    };
+    const makeFetcher =
+      (metadataIntegrity: string, bytes = releaseBytes) =>
+      (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('%40nest-base%2Fhttp-core'))
+          return Promise.resolve(
+            Response.json({
+              versions: {
+                '0.1.0': {
+                  name: '@nest-base/http-core',
+                  version: '0.1.0',
+                  dist: {
+                    tarball:
+                      'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+                    integrity: metadataIntegrity,
+                  },
+                },
+              },
+            }),
+          );
+        return Promise.resolve(
+          new Response(new Blob([bytes as unknown as BlobPart])),
+        );
+      };
+    const integrity = `sha512-${createHash('sha512').update(releaseBytes).digest('base64')}`;
+    const gate = { verify: () => Promise.resolve() };
+    await expectRejected(
+      createHttpCoreReleaseEvidence({
+        registry: makeFetcher('sha512-A'),
+        coreArtifact,
+        independentConsumerGate: gate,
+      }),
+      'integrity',
+    );
+    await expectRejected(
+      createHttpCoreReleaseEvidence({
+        registry: makeFetcher(integrity, new Uint8Array([1, 2, 3])),
+        coreArtifact,
+        independentConsumerGate: gate,
+      }),
+      'digest',
+    );
   });
 
   it('fails closed for unknown and unavailable selections before resolution', () => {
@@ -259,6 +272,60 @@ describe('create-nest-base capability registry', () => {
     expect(artifact?.redirected).toBe(true);
   });
 });
+
+async function createReleaseEvidence() {
+  const httpBytes = await gzipTarball({
+    name: '@nest-base/http-core',
+    version: '0.1.0',
+  });
+  const coreArtifact: ArtifactRecord = {
+    bytes: await gzipTarball({ name: '@nest-base/core', version: '0.1.0' }),
+  };
+  const integrity = `sha512-${createHash('sha512').update(httpBytes).digest('base64')}`;
+  const fetcher = (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('%40nest-base%2Fhttp-core'))
+      return Promise.resolve(
+        Response.json({
+          versions: {
+            '0.1.0': {
+              name: '@nest-base/http-core',
+              version: '0.1.0',
+              dist: {
+                tarball:
+                  'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+                integrity,
+              },
+            },
+          },
+        }),
+      );
+    return Promise.resolve(
+      new Response(new Blob([httpBytes as unknown as BlobPart])),
+    );
+  };
+  return createHttpCoreReleaseEvidence({
+    registry: fetcher,
+    coreArtifact,
+    independentConsumerGate: { verify: () => Promise.resolve() },
+  });
+}
+
+async function expectRejected(
+  promise: Promise<unknown>,
+  message: string,
+): Promise<void> {
+  await promise.then(
+    () => {
+      throw new Error('Expected rejection.');
+    },
+    (error: unknown) => {
+      expect(error instanceof Error ? error.message : String(error)).toContain(
+        message,
+      );
+    },
+  );
+}
 
 async function gzipTarball(
   packageJson: Record<string, string>,
