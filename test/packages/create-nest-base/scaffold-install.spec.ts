@@ -22,6 +22,8 @@ describe('create-nest-base scaffold and install contract', () => {
         '@nestjs/cli@11.0.0',
         'new',
         'demo',
+        '--package-manager',
+        'bun',
         '--strict',
         '--skip-install',
         '--skip-git',

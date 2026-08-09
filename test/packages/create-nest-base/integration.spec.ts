@@ -145,7 +145,7 @@ describe('create-nest-base temporary-root acceptance coverage', () => {
     expect(result.exitCode).toBe(0);
     expect(context.calls).toEqual([
       'confirm',
-      'scaffold:@nestjs/cli@11.0.0 new demo --strict --skip-install --skip-git',
+      'scaffold:@nestjs/cli@11.0.0 new demo --package-manager bun --strict --skip-install --skip-git',
       `install:${context.target}:install`,
     ]);
     const packageJson = JSON.parse(

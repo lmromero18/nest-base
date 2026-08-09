@@ -445,7 +445,7 @@ describe('create-nest-base CLI pipeline', () => {
       'confirm',
       'artifact-gate',
       'consumer',
-      'scaffold:@nestjs/cli@11.0.0 new demo --strict --skip-install --skip-git',
+      'scaffold:@nestjs/cli@11.0.0 new demo --package-manager bun --strict --skip-install --skip-git',
       `install:${target}`,
     ]);
   });

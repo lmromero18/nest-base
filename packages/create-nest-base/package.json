@@ -1,6 +1,6 @@
 {
   "name": "create-nest-base",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Bun-native CLI for creating NestJS projects from nest-base capabilities",
   "type": "module",
   "main": "./index.ts",

@@ -2,7 +2,16 @@ import { join } from 'node:path';
 
 export interface ScaffoldCommand {
   executable: 'bunx';
-  args: [string, 'new', string, '--strict', '--skip-install', '--skip-git'];
+  args: [
+    string,
+    'new',
+    string,
+    '--package-manager',
+    'bun',
+    '--strict',
+    '--skip-install',
+    '--skip-git',
+  ];
 }
 
 export function buildScaffoldCommand(projectName: string): ScaffoldCommand {
@@ -15,6 +24,8 @@ export function buildScaffoldCommand(projectName: string): ScaffoldCommand {
       '@nestjs/cli@11.0.0',
       'new',
       projectName,
+      '--package-manager',
+      'bun',
       '--strict',
       '--skip-install',
       '--skip-git',
