@@ -114,4 +114,31 @@ describe('create-nest-base artifact gate', () => {
       ),
     ).toContain('identity');
   });
+
+  it('runs the independent gate for every selected capability, not only core', async () => {
+    const calls: string[] = [];
+    const httpCoreBytes = new TextEncoder().encode('packed-http-core');
+    const httpCoreIntegrity = `sha512-${createHash('sha512').update(httpCoreBytes).digest('base64')}`;
+    await resolveArtifact(
+      {
+        kind: 'registry',
+        spec: '@nest-base/http-core@0.1.0',
+        package: '@nest-base/http-core',
+        version: '0.1.0',
+        integrity: httpCoreIntegrity,
+      },
+      {
+        registry: () => Promise.resolve({ bytes: httpCoreBytes }),
+        inspect: () => ({ package: '@nest-base/http-core', version: '0.1.0' }),
+      },
+      {
+        verify: (_artifact, _identity, capabilityId) => {
+          calls.push(capabilityId ?? 'missing');
+          return Promise.resolve();
+        },
+      },
+      'http-core',
+    );
+    expect(calls).toEqual(['http-core']);
+  });
 });

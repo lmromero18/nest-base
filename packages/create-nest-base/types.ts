@@ -24,8 +24,12 @@ export interface CapabilityDescriptor {
   status: CapabilityStatus;
   unavailableReason?: string;
   requiredness: CapabilityRequiredness;
+  recommended: boolean;
+  defaultSelectedInteractive: boolean;
   package: string;
   defaultVersion: string;
+  defaultSource: Source;
+  defaultIntegrity?: `sha512-${string}`;
   dependencySection: 'dependencies' | 'devDependencies';
   compatibility: string;
   conflicts: string[];
@@ -67,13 +71,16 @@ export interface InteractiveInput {
   packageManager?: PackageManager;
   installEnabled?: boolean;
   logger?: boolean;
-  selections?: string[];
+  selections?: readonly string[];
   coreVersion?: string;
   coreSource?: CapabilitySourceInput;
   coreIntegrity?: `sha512-${string}`;
   loggerVersion?: string;
   loggerSource?: CapabilitySourceInput;
   loggerIntegrity?: `sha512-${string}`;
+  httpCoreVersion?: string;
+  httpCoreSource?: CapabilitySourceInput;
+  httpCoreIntegrity?: `sha512-${string}`;
   wizardVersion?: string;
 }
 
@@ -93,11 +100,14 @@ export interface ParsedCliArgs {
   skipInstall?: boolean;
   strict?: boolean;
   skipGit?: boolean;
-  selections?: string[];
+  selections?: readonly string[];
   coreVersion?: string;
   coreSource?: string;
   coreIntegrity?: `sha512-${string}`;
   loggerVersion?: string;
   loggerSource?: string;
   loggerIntegrity?: `sha512-${string}`;
+  httpCoreVersion?: string;
+  httpCoreSource?: string;
+  httpCoreIntegrity?: `sha512-${string}`;
 }

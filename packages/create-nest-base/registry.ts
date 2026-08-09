@@ -11,8 +11,32 @@ export const REGISTRY_REVISION = '2026-07-27';
 export const DEFAULT_WIZARD_VERSION = '0.1.0';
 const DEFAULT_CORE_VERSION = '0.1.0';
 const DEFAULT_LOGGER_VERSION = '1.0.0';
+const DEFAULT_HTTP_CORE_VERSION = '0.1.0';
 export const DEFAULT_CORE_INTEGRITY =
   'sha512-wjDf/s0C9qVaXHhtwJV38Dr9rZuxLWFxuqT1gPgK5WJ33zJw2TEixpV22EcPn1iY8YI3ErgGOzktv8ywtqty/g==';
+export const DEFAULT_HTTP_CORE_INTEGRITY =
+  'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==';
+
+export interface ReleaseEvidence {
+  package: string;
+  version: string;
+  integrity: `sha512-${string}`;
+}
+
+export function assertHttpCoreReleaseEvidence(): ReleaseEvidence {
+  const evidence: ReleaseEvidence = {
+    package: '@nest-base/http-core',
+    version: DEFAULT_HTTP_CORE_VERSION,
+    integrity: DEFAULT_HTTP_CORE_INTEGRITY,
+  };
+  if (
+    evidence.package !== '@nest-base/http-core' ||
+    evidence.version !== '0.1.0' ||
+    !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(evidence.integrity)
+  )
+    throw new Error('HTTP-core release evidence is incomplete.');
+  return evidence;
+}
 
 export type RegistryFetch = (
   input: RequestInfo | URL,
@@ -142,8 +166,12 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     description: 'The mandatory Nest Base CRUD foundation.',
     status: 'available',
     requiredness: 'locked',
+    recommended: false,
+    defaultSelectedInteractive: true,
     package: '@nest-base/core',
     defaultVersion: DEFAULT_CORE_VERSION,
+    defaultSource: { kind: 'registry', spec: '@nest-base/core@0.1.0' },
+    defaultIntegrity: DEFAULT_CORE_INTEGRITY,
     dependencySection: 'dependencies',
     compatibility: 'NestJS 11 and Bun 1.3.14 or newer.',
     conflicts: [
@@ -161,8 +189,11 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
       'Structured logging integration for the generated application.',
     status: 'available',
     requiredness: 'optional',
+    recommended: false,
+    defaultSelectedInteractive: false,
     package: '@nest-base/logger',
     defaultVersion: DEFAULT_LOGGER_VERSION,
+    defaultSource: { kind: 'registry', spec: '@nest-base/logger@1.0.0' },
     dependencySection: 'dependencies',
     compatibility: 'NestJS 11 and Bun 1.3.14 or newer.',
     conflicts: ['Cannot overwrite an existing logger configuration.'],
@@ -170,6 +201,26 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     manualSteps: [
       'Review logger configuration and connect it to the application logger.',
     ],
+  },
+  {
+    id: 'http-core',
+    description: 'HTTP controller and response helpers for Nest applications.',
+    status: 'available',
+    requiredness: 'optional',
+    recommended: true,
+    defaultSelectedInteractive: true,
+    package: '@nest-base/http-core',
+    defaultVersion: DEFAULT_HTTP_CORE_VERSION,
+    defaultSource: {
+      kind: 'registry',
+      spec: '@nest-base/http-core@0.1.0',
+    },
+    defaultIntegrity: DEFAULT_HTTP_CORE_INTEGRITY,
+    dependencySection: 'dependencies',
+    compatibility: 'NestJS 11, @nest-base/core 0.1.x, and Bun 1.3.14 or newer.',
+    conflicts: ['Cannot be selected without an exact verified artifact.'],
+    ownedPaths: ['.nest-base/http-core.json'],
+    manualSteps: ['Review the generated HTTP controller integration.'],
   },
   ...(
     ['websocket', 'events', 'kafka', 'pubsub', 'queues', 'generator'] as const
@@ -181,6 +232,9 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     requiredness: 'future',
     package: `@nest-base/${id}`,
     defaultVersion: '0.0.0',
+    defaultSource: { kind: 'registry', spec: `@nest-base/${id}@0.0.0` },
+    recommended: false,
+    defaultSelectedInteractive: false,
     dependencySection: 'dependencies',
     compatibility: 'Compatibility matrix is not published for this capability.',
     conflicts: ['Selection is rejected until the capability is promoted.'],

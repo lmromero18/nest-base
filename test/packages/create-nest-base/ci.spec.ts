@@ -97,6 +97,48 @@ describe('create-nest-base CI normalization', () => {
     ).toThrow('unavailable');
   });
 
+  it('requires explicit HTTP-core artifact inputs only when HTTP-core is selected', () => {
+    const base = {
+      ci: true as const,
+      target: './demo',
+      packageManager: 'bun' as const,
+      coreSource: { kind: 'registry' as const, spec: '@nest-base/core@1.2.3' },
+      coreVersion: '1.2.3',
+      coreIntegrity: 'sha512-core' as const,
+      selections: ['core-crud', 'http-core'],
+    };
+    expect(() => normalizeCiInput(base)).toThrow('http-core source');
+    expect(() =>
+      normalizeCiInput({
+        ...base,
+        httpCoreSource: {
+          kind: 'registry',
+          spec: '@nest-base/http-core@0.1.0',
+        },
+      }),
+    ).toThrow('http-core version');
+    expect(() =>
+      normalizeCiInput({
+        ...base,
+        httpCoreSource: {
+          kind: 'registry',
+          spec: '@nest-base/http-core@0.1.0',
+        },
+        httpCoreVersion: '0.1.0',
+      }),
+    ).toThrow('http-core integrity');
+    const plan = normalizeCiInput({
+      ...base,
+      httpCoreSource: { kind: 'registry', spec: '@nest-base/http-core@0.1.0' },
+      httpCoreVersion: '0.1.0',
+      httpCoreIntegrity: 'sha512-http-core',
+    });
+    expect(plan.capabilities.map((entry) => entry.id)).toEqual([
+      'core-crud',
+      'http-core',
+    ]);
+  });
+
   it('produces byte-equivalent CI and interactive plans', () => {
     const input = {
       target: './demo',

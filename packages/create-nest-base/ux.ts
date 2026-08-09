@@ -1,6 +1,7 @@
 import {
   DEFAULT_WIZARD_VERSION,
   DEFAULT_CORE_INTEGRITY,
+  DEFAULT_HTTP_CORE_INTEGRITY,
   REGISTRY_REVISION,
   getCapability,
   makeResolvedCapability,
@@ -43,6 +44,13 @@ export function buildInteractiveCards(): InteractiveCard[] {
         'This capability is mandatory: every Nest Base project starts with the CRUD foundation.',
     },
     {
+      id: 'http-core',
+      title: 'HTTP Core (optional, recommended)',
+      selectable: true,
+      message:
+        'This optional capability is recommended and selected by default; select core-only to opt out.',
+    },
+    {
       id: 'logger',
       title: 'Logger (optional)',
       selectable: true,
@@ -73,26 +81,41 @@ export function normalizeInteractiveInput(
     !isPackageManager(input.packageManager)
   )
     throw new Error('Package manager must be npm, pnpm, yarn, or bun.');
-  const selected =
-    input.selections ??
-    (input.logger ? ['core-crud', 'logger'] : ['core-crud']);
+  const selected = input.selections ?? [
+    'core-crud',
+    'http-core',
+    ...(input.logger ? ['logger'] : []),
+  ];
   const descriptors = resolveCapabilities(selected);
   const capabilities = descriptors.map((descriptor) => {
     const isLogger = descriptor.id === 'logger';
+    const isHttpCore = descriptor.id === 'http-core';
     const version = isLogger
       ? (input.loggerVersion ?? descriptor.defaultVersion)
-      : (input.coreVersion ?? descriptor.defaultVersion);
+      : isHttpCore
+        ? (input.httpCoreVersion ?? descriptor.defaultVersion)
+        : (input.coreVersion ?? descriptor.defaultVersion);
     const source = sourceOrDefault(
-      isLogger ? input.loggerSource : input.coreSource,
+      isLogger
+        ? input.loggerSource
+        : isHttpCore
+          ? input.httpCoreSource
+          : input.coreSource,
       descriptor.package,
       version,
     );
     const integrity = isLogger
       ? input.loggerIntegrity
-      : (input.coreIntegrity ??
-        (input.coreVersion === undefined && input.coreSource === undefined
-          ? DEFAULT_CORE_INTEGRITY
-          : undefined));
+      : isHttpCore
+        ? (input.httpCoreIntegrity ??
+          (input.httpCoreVersion === undefined &&
+          input.httpCoreSource === undefined
+            ? DEFAULT_HTTP_CORE_INTEGRITY
+            : undefined))
+        : (input.coreIntegrity ??
+          (input.coreVersion === undefined && input.coreSource === undefined
+            ? DEFAULT_CORE_INTEGRITY
+            : undefined));
     return makeResolvedCapability(descriptor, version, source, integrity);
   });
 
@@ -126,7 +149,7 @@ export function renderPreview(plan: NormalizedPlan): string {
   );
   const rows = plan.capabilities.map((entry) =>
     [
-      `  - ${entry.id}: ${entry.package}`,
+      `  - ${entry.id}: ${entry.package}${getCapability(entry.id).recommended ? ' (Recommended)' : ''}`,
       `Source: ${entry.source.kind} ${entry.source.spec}`,
       `Version: ${entry.version}`,
       `Integrity: ${entry.integrity}`,

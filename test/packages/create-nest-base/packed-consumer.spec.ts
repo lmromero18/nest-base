@@ -126,6 +126,8 @@ function runPackedCi(workspace: string, target: string, coreArchive: string) {
       'bun',
       '--target',
       target,
+      '--select',
+      'core-crud',
       '--yes',
       '--core-version',
       '0.1.0',

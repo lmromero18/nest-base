@@ -7,6 +7,7 @@ import {
   inspectPackedArtifact,
   resolveCapabilities,
   resolveSource,
+  assertHttpCoreReleaseEvidence,
 } from '../../../packages/create-nest-base/registry';
 
 describe('create-nest-base capability registry', () => {
@@ -14,6 +15,7 @@ describe('create-nest-base capability registry', () => {
     expect(CAPABILITY_REGISTRY.map((entry) => entry.id)).toEqual([
       'core-crud',
       'logger',
+      'http-core',
       'websocket',
       'events',
       'kafka',
@@ -28,7 +30,31 @@ describe('create-nest-base capability registry', () => {
     expect(core.package).toBe('@nest-base/core');
     expect(core.defaultVersion).toBe('0.1.0');
 
-    for (const entry of CAPABILITY_REGISTRY.slice(2)) {
+    const httpCore = CAPABILITY_REGISTRY.find(
+      (entry) => entry.id === 'http-core',
+    );
+    expect(httpCore?.status).toBe('available');
+    expect(httpCore?.requiredness).toBe('optional');
+    expect(httpCore?.recommended).toBe(true);
+    expect(httpCore?.defaultSelectedInteractive).toBe(true);
+    expect(httpCore?.package).toBe('@nest-base/http-core');
+    expect(httpCore?.defaultVersion).toBe('0.1.0');
+    expect(httpCore?.defaultSource).toEqual({
+      kind: 'registry',
+      spec: '@nest-base/http-core@0.1.0',
+    });
+    expect(httpCore?.defaultIntegrity).toBe(
+      'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
+    );
+    expect(httpCore?.compatibility).toContain('NestJS 11');
+    expect(assertHttpCoreReleaseEvidence()).toEqual({
+      package: '@nest-base/http-core',
+      version: '0.1.0',
+      integrity:
+        'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
+    });
+
+    for (const entry of CAPABILITY_REGISTRY.slice(3)) {
       expect(entry.status).toBe('unavailable');
       expect(entry.unavailableReason).toBeTruthy();
       expect(entry.compatibility).toBeTruthy();

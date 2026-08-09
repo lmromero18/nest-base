@@ -98,6 +98,12 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
       result.loggerSource = requiredValue(arg, next);
     else if (arg === '--logger-integrity')
       result.loggerIntegrity = requiredValue(arg, next) as `sha512-${string}`;
+    else if (arg === '--http-core-version')
+      result.httpCoreVersion = requiredValue(arg, next);
+    else if (arg === '--http-core-source')
+      result.httpCoreSource = requiredValue(arg, next);
+    else if (arg === '--http-core-integrity')
+      result.httpCoreIntegrity = requiredValue(arg, next) as `sha512-${string}`;
     else throw new Error(`Unknown option "${arg}".`);
     if (
       [
@@ -109,6 +115,9 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
         '--logger-version',
         '--logger-source',
         '--logger-integrity',
+        '--http-core-version',
+        '--http-core-source',
+        '--http-core-integrity',
         '--package-manager',
       ].includes(arg)
     )
@@ -148,6 +157,14 @@ export function normalizeCiInput(input: CiInput): NormalizedPlan {
       input.loggerVersion,
       input.loggerIntegrity,
     );
+  const hasHttpCore = descriptors.some((entry) => entry.id === 'http-core');
+  if (hasHttpCore)
+    requireCiArtifact(
+      'http-core',
+      input.httpCoreSource,
+      input.httpCoreVersion,
+      input.httpCoreIntegrity,
+    );
   return normalizeInteractiveInput({
     ...input,
     target,
@@ -160,6 +177,9 @@ export function normalizeCiInput(input: CiInput): NormalizedPlan {
     loggerSource: input.loggerSource,
     loggerVersion: input.loggerVersion,
     loggerIntegrity: input.loggerIntegrity,
+    httpCoreSource: input.httpCoreSource,
+    httpCoreVersion: input.httpCoreVersion,
+    httpCoreIntegrity: input.httpCoreIntegrity,
   });
 }
 
@@ -195,6 +215,11 @@ export function normalizeParsedCli(args: ParsedCliArgs): NormalizedPlan {
         ? inferSource(args.loggerSource)
         : undefined,
       loggerIntegrity: args.loggerIntegrity,
+      httpCoreVersion: args.httpCoreVersion,
+      httpCoreSource: args.httpCoreSource
+        ? inferSource(args.httpCoreSource)
+        : undefined,
+      httpCoreIntegrity: args.httpCoreIntegrity,
     });
   }
   return normalizeInteractiveInput({
@@ -211,6 +236,11 @@ export function normalizeParsedCli(args: ParsedCliArgs): NormalizedPlan {
       ? inferSource(args.loggerSource)
       : undefined,
     loggerIntegrity: args.loggerIntegrity,
+    httpCoreVersion: args.httpCoreVersion,
+    httpCoreSource: args.httpCoreSource
+      ? inferSource(args.httpCoreSource)
+      : undefined,
+    httpCoreIntegrity: args.httpCoreIntegrity,
   });
 }
 
@@ -290,6 +320,8 @@ async function executePipeline(
       },
       dependencies.artifactLoaders,
       dependencies.independentConsumerGate,
+      capability.id,
+      verifiedArtifacts,
     );
     verifiedArtifacts.set(capability.id, artifact);
   }
@@ -402,6 +434,7 @@ export function formatHelp(): string {
     'create-nest-base [--ci] --target <directory> [options]',
     '--package-manager <npm|pnpm|yarn|bun>  Required in CI; interactive defaults to bun.',
     '--select <core-crud,logger>  Select capabilities (core-crud is mandatory).',
+    '--select <core-crud,http-core,logger>  HTTP Core is recommended interactively; core-only opts out.',
     '--skip-install              Disable the final package-manager install.',
     '--dry-run                   Preview the normalized plan without writes.',
     '--yes                       Confirm a complete plan in CI.',

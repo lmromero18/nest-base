@@ -29,6 +29,7 @@ const args = {
   coreVersion: '1.0.0',
   coreSource: '@nest-base/core@1.0.0',
   coreIntegrity: integrity as `sha512-${string}`,
+  selections: ['core-crud'],
 };
 
 describe('create-nest-base CLI pipeline', () => {

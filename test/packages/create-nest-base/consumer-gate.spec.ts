@@ -66,6 +66,19 @@ describe('create-nest-base independent consumer gate', () => {
     expect(source).not.toContain('packages/core');
   });
 
+  it('creates a packed HTTP-core consumer without repository-source fallback', () => {
+    const source = createConsumerSource('http-core');
+    expect(source).toContain("from '@nest-base/http-core'");
+    expect(source).not.toContain('packages/http-core');
+    const manifest = createConsumerManifest(
+      'C:/tmp/http-core.tgz',
+      'http-core',
+    );
+    expect(manifest.dependencies['@nest-base/http-core']).toContain(
+      'http-core.tgz',
+    );
+  });
+
   it('compiles and runs a consumer against a real packed core artifact', async () => {
     const archiveDirectory = mkdtempSync(`${tmpdir()}/create-nest-base-core-`);
     const packageRoot = resolve(__dirname, '../../../packages/core');
@@ -122,6 +135,7 @@ describe('create-nest-base independent consumer gate', () => {
           coreVersion: '0.1.0',
           coreSource: '@nest-base/core@0.1.0',
           coreIntegrity: integrity,
+          selections: ['core-crud'],
         },
         {
           fileSystem: {
