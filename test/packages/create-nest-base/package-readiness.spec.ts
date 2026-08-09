@@ -14,6 +14,8 @@ const expectedFiles = [
   'metadata.ts',
   'preflight.ts',
   'registry.ts',
+  'registry-constants.ts',
+  'registry-internal.ts',
   'scaffold.ts',
   'types.ts',
   'ux.ts',
@@ -89,7 +91,7 @@ describe('create-nest-base package readiness', () => {
     };
 
     expect(manifest.files).toEqual(expectedFiles);
-    expect(manifest.files).toHaveLength(13);
+    expect(manifest.files).toHaveLength(15);
     for (const file of expectedFiles)
       expect(existsSync(resolve(packageRoot, file))).toBe(true);
   });

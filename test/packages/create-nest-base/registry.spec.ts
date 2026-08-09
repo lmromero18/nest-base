@@ -11,11 +11,16 @@ import {
   assertHttpCoreReleaseEvidence,
   bindHttpCoreReleaseEvidence,
   createHttpCoreReleaseEvidence,
-  createHttpCoreReleaseEvidenceForTest,
 } from '../../../packages/create-nest-base/registry';
+import { createHttpCoreReleaseEvidenceForTest } from '../../../packages/create-nest-base/registry-test-support';
+import * as publicPackage from '../../../packages/create-nest-base/index';
 import type { HttpCoreReleaseEvidence } from '../../../packages/create-nest-base/types';
 
 describe('create-nest-base capability registry', () => {
+  it('does not expose the injectable evidence seam from the public package surface', () => {
+    expect('createHttpCoreReleaseEvidenceForTest' in publicPackage).toBe(false);
+  });
+
   it('keeps CRUD locked, exposes logger, and explains every future capability', async () => {
     expect(CAPABILITY_REGISTRY.map((entry) => entry.id)).toEqual([
       'core-crud',
@@ -110,7 +115,7 @@ describe('create-nest-base capability registry', () => {
       version: '0.1.0',
     });
     const coreArtifact = {
-      bytes: await gzipTarball({ name: '@nest-base/core', version: '0.1.0' }),
+      bytes: await fetchCanonicalCore(),
     };
     const makeFetcher =
       (metadataIntegrity: string, bytes = releaseBytes) =>
@@ -183,10 +188,7 @@ describe('create-nest-base capability registry', () => {
       name: '@nest-base/http-core',
       version: '0.1.0',
     });
-    const canonicalCore = await gzipTarball({
-      name: '@nest-base/core',
-      version: '0.1.0',
-    });
+    const canonicalCore = await fetchCanonicalCore();
     const arbitraryCore = await gzipTarball({
       name: '@nest-base/core',
       version: '0.1.0',
@@ -226,6 +228,53 @@ describe('create-nest-base capability registry', () => {
         independentConsumerGate: { verify: () => Promise.resolve() },
       }),
       'integrity/provenance',
+    );
+  });
+
+  it('rejects matching forged core metadata with a non-canonical digest', async () => {
+    const releaseBytes = await gzipTarball({
+      name: '@nest-base/http-core',
+      version: '0.1.0',
+    });
+    const forgedCore = await gzipTarball({
+      name: '@nest-base/core',
+      version: '0.1.0',
+      forged: 'true',
+    });
+    const fetcher = (input: RequestInfo | URL) => {
+      const url = String(input);
+      const isCore =
+        url.includes('%40nest-base%2Fcore') || url.endsWith('/core-0.1.0.tgz');
+      const bytes = isCore ? forgedCore : releaseBytes;
+      if (url.includes('%40nest-base%2F'))
+        return Promise.resolve(
+          Response.json({
+            versions: {
+              '0.1.0': {
+                name: isCore ? '@nest-base/core' : '@nest-base/http-core',
+                version: '0.1.0',
+                dist: {
+                  tarball: isCore
+                    ? 'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz'
+                    : 'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+                  integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}`,
+                },
+              },
+            },
+          }),
+        );
+      return Promise.resolve(
+        new Response(new Blob([bytes as unknown as BlobPart])),
+      );
+    };
+
+    await expectRejected(
+      createHttpCoreReleaseEvidenceForTest({
+        registry: fetcher,
+        coreArtifact: { bytes: forgedCore },
+        independentConsumerGate: { verify: () => Promise.resolve() },
+      }),
+      'canonical',
     );
   });
 
@@ -374,9 +423,7 @@ async function createReleaseEvidence() {
     name: '@nest-base/http-core',
     version: '0.1.0',
   });
-  const coreArtifact: ArtifactRecord = {
-    bytes: await gzipTarball({ name: '@nest-base/core', version: '0.1.0' }),
-  };
+  const coreArtifact: ArtifactRecord = { bytes: await fetchCanonicalCore() };
   const integrity = `sha512-${createHash('sha512').update(httpBytes).digest('base64')}`;
   const fetcher = (input: RequestInfo | URL) => {
     const url = String(input);
@@ -425,6 +472,13 @@ async function createReleaseEvidence() {
     coreArtifact,
     independentConsumerGate: { verify: () => Promise.resolve() },
   });
+}
+
+async function fetchCanonicalCore(): Promise<Uint8Array> {
+  const loader = createRegistryArtifactLoader(fetch);
+  const artifact = await loader('@nest-base/core@0.1.0');
+  if (!artifact) throw new Error('Canonical core artifact was unavailable.');
+  return artifact.bytes;
 }
 
 async function expectRejected(

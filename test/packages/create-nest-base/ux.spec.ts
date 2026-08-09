@@ -6,7 +6,8 @@ import {
   normalizeInteractiveInput,
   renderPreview,
 } from '../../../packages/create-nest-base/ux';
-import { createHttpCoreReleaseEvidenceForTest } from '../../../packages/create-nest-base/registry';
+import { createRegistryArtifactLoader } from '../../../packages/create-nest-base/registry';
+import { createHttpCoreReleaseEvidenceForTest } from '../../../packages/create-nest-base/registry-test-support';
 
 describe('create-nest-base interactive UX', () => {
   it('explains mandatory CRUD, optional logger, and unavailable future cards', () => {
@@ -101,7 +102,10 @@ describe('create-nest-base interactive UX', () => {
 
 async function makeReleaseEvidence() {
   const bytes = Bun.gzipSync(new Uint8Array(1024));
-  const coreBytes = Bun.gzipSync(new Uint8Array(1025));
+  const coreLoader = createRegistryArtifactLoader(fetch);
+  const loadedCore = await coreLoader('@nest-base/core@0.1.0');
+  if (!loadedCore) throw new Error('Canonical core artifact was unavailable.');
+  const coreBytes = loadedCore.bytes;
   const coreArtifact = { bytes: coreBytes };
   const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
   return createHttpCoreReleaseEvidenceForTest({

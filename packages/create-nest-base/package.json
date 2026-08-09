@@ -25,6 +25,8 @@
     "metadata.ts",
     "preflight.ts",
     "registry.ts",
+    "registry-constants.ts",
+    "registry-internal.ts",
     "scaffold.ts",
     "types.ts",
     "ux.ts",
