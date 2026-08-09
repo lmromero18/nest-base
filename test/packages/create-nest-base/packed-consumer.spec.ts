@@ -221,6 +221,11 @@ describe('create-nest-base packed consumer', () => {
 
       expect(result.exitCode, output(result)).toBe(0);
       expect(output(result)).toContain('core-crud');
+      const manifest = JSON.parse(
+        readFileSync(resolve(target, '.nest-base/manifest.json'), 'utf8'),
+      ) as { packageManager: string; installArgs: string[] };
+      expect(manifest.packageManager).toBe('bun');
+      expect(manifest.installArgs).toEqual(['install']);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
       rmSync(wizardArchiveDirectory, { recursive: true, force: true });

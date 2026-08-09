@@ -8,10 +8,11 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { getCapability } from './registry.js';
 import type { ArtifactRecord } from './artifact-gate.js';
 import type { NormalizedPlan, ResolvedCapability } from './types.js';
+import { describePackageManagerCommands } from './install.js';
 
 const MANIFEST_PATH = '.nest-base/manifest.json';
 const MAX_COMPENSATION_WRITES = 32;
@@ -66,6 +67,11 @@ export interface CanonicalManifest {
   schemaVersion: 1;
   wizardVersion: string;
   target: string;
+  packageManager: NormalizedPlan['packageManager'];
+  launcher: string;
+  installEnabled: boolean;
+  scaffoldArgs: string[];
+  installArgs: ['install'];
   registryRevision: string;
   resolvedEntries: readonly ResolvedCapability[];
   dependencySections: {
@@ -114,12 +120,21 @@ export function buildMetadataPreview(
   );
   validateExistingMirror(packageBefore.nestBase);
   const existingManifest = fileSystem.readFile(manifestPath);
+  const commands = describePackageManagerCommands(
+    plan.packageManager,
+    basename(plan.target),
+  );
   if (existingManifest !== undefined) {
     const parsed = readJson(existingManifest, MANIFEST_PATH);
     validateManifest(parsed);
     validateCapabilityOwnedOutputs(parsed, plan, fileSystem);
     if (
       parsed.registryRevision !== plan.registryRevision ||
+      parsed.packageManager !== plan.packageManager ||
+      parsed.launcher !== commands.scaffold.executable ||
+      parsed.installEnabled !== plan.installEnabled ||
+      !sameJson(parsed.scaffoldArgs, commands.scaffold.args) ||
+      !sameJson(parsed.installArgs, commands.install.args) ||
       !sameJson(parsed.resolvedEntries, plan.capabilities)
     )
       throw new Error('Metadata drift detected in manifest.');
@@ -227,6 +242,11 @@ export function buildMetadataPreview(
     schemaVersion: 1,
     wizardVersion: plan.wizardVersion,
     target: plan.target,
+    packageManager: plan.packageManager,
+    launcher: commands.scaffold.executable,
+    installEnabled: plan.installEnabled,
+    scaffoldArgs: commands.scaffold.args,
+    installArgs: commands.install.args,
     registryRevision: plan.registryRevision,
     resolvedEntries: plan.capabilities,
     dependencySections: sections,
@@ -459,6 +479,11 @@ function validateManifest(value: JsonObject): void {
     'schemaVersion',
     'wizardVersion',
     'target',
+    'packageManager',
+    'launcher',
+    'installEnabled',
+    'scaffoldArgs',
+    'installArgs',
     'registryRevision',
     'resolvedEntries',
     'dependencySections',

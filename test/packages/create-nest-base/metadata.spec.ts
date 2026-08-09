@@ -98,6 +98,31 @@ describe('create-nest-base canonical metadata', () => {
     });
   });
 
+  it('records the normalized manager and lifecycle command provenance', () => {
+    const files: Record<string, string> = {
+      [packagePath]: JSON.stringify({ name: 'demo' }),
+    };
+    const preview = buildMetadataPreview(plan, memoryFs(files));
+    const manifest = JSON.parse(
+      preview.writes.find((write) => write.path.endsWith('manifest.json'))!
+        .content,
+    ) as Record<string, unknown>;
+
+    expect(manifest.packageManager).toBe('bun');
+    expect(manifest.installEnabled).toBe(true);
+    expect(manifest.scaffoldArgs).toEqual([
+      '@nestjs/cli@11.0.0',
+      'new',
+      'demo',
+      '--package-manager',
+      'bun',
+      '--strict',
+      '--skip-install',
+      '--skip-git',
+    ]);
+    expect(manifest.installArgs).toEqual(['install']);
+  });
+
   it('uses verified file and URL sources as the generated dependency specs', () => {
     for (const source of [
       { kind: 'file' as const, spec: '/artifacts/core.tgz' },
@@ -288,6 +313,21 @@ describe('create-nest-base canonical metadata', () => {
         },
         fs,
       ),
+    ).toThrow('drift');
+  });
+
+  it('rejects manager and install-policy drift on retry', () => {
+    const files: Record<string, string> = {
+      [packagePath]: JSON.stringify({ name: 'demo' }),
+    };
+    const fs = memoryFs(files);
+    applyOwnedWrites(buildMetadataPreview(plan, fs), fs);
+
+    expect(() =>
+      buildMetadataPreview({ ...plan, packageManager: 'npm' }, fs),
+    ).toThrow('drift');
+    expect(() =>
+      buildMetadataPreview({ ...plan, installEnabled: false }, fs),
     ).toThrow('drift');
   });
 
