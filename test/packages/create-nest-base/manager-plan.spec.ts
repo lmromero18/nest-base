@@ -17,7 +17,7 @@ import {
 const artifact = {
   coreSource: { kind: 'registry' as const, spec: '@nest-base/core@1.2.3' },
   coreVersion: '1.2.3',
-  coreIntegrity: ('sha512-' + 'A'.repeat(88)) as `sha512-${string}`,
+  coreIntegrity: `sha512-${Buffer.alloc(64).toString('base64')}`,
   selections: ['core-crud'],
 };
 

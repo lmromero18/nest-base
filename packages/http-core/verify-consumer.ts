@@ -47,13 +47,16 @@ export function assertHttpCoreConsumerProvenance(consumerRoot: string): void {
     );
 }
 
-export function createHttpCoreConsumerManifest(tarball: string) {
+export function createHttpCoreConsumerManifest(
+  tarball: string,
+  coreTarball: string,
+) {
   return {
     name: 'nest-base-http-core-independent-consumer',
     private: true,
     type: 'module',
     dependencies: {
-      '@nest-base/core': '0.1.0',
+      '@nest-base/core': `file:${coreTarball}`,
       '@nest-base/http-core': `file:${tarball}`,
       '@nestjs/common': '>=11.0.0 <12.0.0',
       '@nestjs/swagger': '>=11.0.0 <12.0.0',
@@ -96,10 +99,23 @@ function main(): void {
   if (!name)
     throw new Error('No packed @nest-base/http-core artifact was produced');
   const httpTarball = join(artifacts, name);
+  run(
+    ['npm', 'pack', '--ignore-scripts', '--pack-destination', artifacts],
+    resolve(repositoryRoot, 'packages/core'),
+  );
+  const coreName = readdirSync(artifacts).find(
+    (entry) =>
+      entry.includes('-core-') &&
+      !entry.includes('http-core') &&
+      entry.endsWith('.tgz'),
+  );
+  if (!coreName)
+    throw new Error('No packed @nest-base/core artifact was produced');
+  const coreTarball = join(artifacts, coreName);
 
   writeFileSync(
     join(consumer, 'package.json'),
-    `${JSON.stringify(createHttpCoreConsumerManifest(httpTarball), null, 2)}\n`,
+    `${JSON.stringify(createHttpCoreConsumerManifest(httpTarball, coreTarball), null, 2)}\n`,
   );
   writeFileSync(
     join(consumer, 'tsconfig.json'),

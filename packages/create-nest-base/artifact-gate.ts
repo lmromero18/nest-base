@@ -43,7 +43,7 @@ export async function resolveArtifact(
     : expected.package,
   verifiedArtifacts?: ReadonlyMap<string, ArtifactRecord>,
 ): Promise<ArtifactRecord> {
-  assertIntegrity(expected.integrity);
+  assertSha512Integrity(expected.integrity);
   assertSourceIdentity(expected);
   const record = await loaders[expected.kind]?.(expected.spec);
   if (!record)
@@ -93,10 +93,15 @@ export async function requireIndependentConsumerGate(
   await gate.verify(artifact, identity, capabilityId, dependencies);
 }
 
-function assertIntegrity(integrity: string): void {
+export function assertSha512Integrity(
+  integrity: string,
+): asserts integrity is `sha512-${string}` {
+  const encoded = integrity.startsWith('sha512-') ? integrity.slice(7) : '';
   if (
-    !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(integrity) ||
-    integrity === 'sha512-pending'
+    !/^sha512-(?:[A-Za-z0-9+/]{86}==|[A-Za-z0-9+/]{87}=)$/.test(integrity) ||
+    integrity === 'sha512-pending' ||
+    Buffer.from(encoded, 'base64').length !== 64 ||
+    Buffer.from(encoded, 'base64').toString('base64') !== encoded
   ) {
     throw new Error('Artifact requires a verified sha512 integrity.');
   }

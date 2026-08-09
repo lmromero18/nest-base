@@ -101,12 +101,14 @@ describe('@nest-base/http-core package-platform evidence', () => {
   });
 
   it('builds an isolated tarball consumer and rejects workspace-source fallback', () => {
-    expect(createHttpCoreConsumerManifest('C:/tmp/http-core.tgz')).toEqual({
+    expect(
+      createHttpCoreConsumerManifest('C:/tmp/http-core.tgz', 'C:/tmp/core.tgz'),
+    ).toEqual({
       name: 'nest-base-http-core-independent-consumer',
       private: true,
       type: 'module',
       dependencies: {
-        '@nest-base/core': '0.1.0',
+        '@nest-base/core': 'file:C:/tmp/core.tgz',
         '@nest-base/http-core': 'file:C:/tmp/http-core.tgz',
         '@nestjs/common': '>=11.0.0 <12.0.0',
         '@nestjs/swagger': '>=11.0.0 <12.0.0',

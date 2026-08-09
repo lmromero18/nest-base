@@ -1,29 +1,36 @@
 import { describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
 import {
   buildInteractiveCards,
   confirmPlan,
   normalizeInteractiveInput,
   renderPreview,
 } from '../../../packages/create-nest-base/ux';
+import { createHttpCoreReleaseEvidence } from '../../../packages/create-nest-base/registry';
 
-const releaseEvidence = {
-  package: '@nest-base/http-core' as const,
+const releaseEvidence = createHttpCoreReleaseEvidence({
+  package: '@nest-base/http-core',
   version: '0.1.0',
-  integrity:
-    'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==' as `sha512-${string}`,
-  published: {
-    package: '@nest-base/http-core' as const,
+  integrity: `sha512-${createHash('sha512').update(new Uint8Array(64)).digest('base64')}`,
+  tarballUrl:
+    'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+  tarballBytes: new Uint8Array(64),
+  audit: {
+    tool: 'http-core-tarball-audit',
+    package: '@nest-base/http-core',
     version: '0.1.0',
-    integrity:
-      'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==' as `sha512-${string}`,
+    artifactDigest: `sha512-${createHash('sha512').update(new Uint8Array(64)).digest('base64')}`,
+    status: 'passed',
   },
-  audit: { command: 'bun run audit:http-core:tarball', passed: true as const },
   consumer: {
-    command: 'bun run verify:http-core:consumer',
-    passed: true as const,
-    modes: ['esm', 'cjs'] as const,
+    tool: 'http-core-independent-consumer',
+    package: '@nest-base/http-core',
+    version: '0.1.0',
+    artifactDigest: `sha512-${createHash('sha512').update(new Uint8Array(64)).digest('base64')}`,
+    status: 'passed',
+    modes: ['esm', 'cjs'],
   },
-};
+});
 
 describe('create-nest-base interactive UX', () => {
   it('explains mandatory CRUD, optional logger, and unavailable future cards', () => {
@@ -72,8 +79,7 @@ describe('create-nest-base interactive UX', () => {
       package: '@nest-base/http-core',
       version: '0.1.0',
       source: { kind: 'registry', spec: '@nest-base/http-core@0.1.0' },
-      integrity:
-        'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
+      integrity: releaseEvidence.integrity,
     });
     expect(
       normalizeInteractiveInput({

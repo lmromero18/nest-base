@@ -20,6 +20,7 @@ import type {
   ArtifactRecord,
   IndependentConsumerGate,
 } from './artifact-gate.js';
+import { assertSha512Integrity } from './artifact-gate.js';
 import { confirmPlan, normalizeInteractiveInput, renderPreview } from './ux.js';
 import { createIndependentConsumerGate } from './consumer-gate.js';
 import {
@@ -194,12 +195,14 @@ function requireCiArtifact(
 ): void {
   if (!source) throw new Error(`CI mode requires ${capability} source.`);
   if (!version) throw new Error(`CI mode requires ${capability} version.`);
-  if (
-    !integrity ||
-    !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(integrity) ||
-    integrity === 'sha512-pending'
-  )
+  if (!integrity) {
     throw new Error(`CI mode requires ${capability} integrity.`);
+  }
+  try {
+    assertSha512Integrity(integrity);
+  } catch {
+    throw new Error(`CI mode requires ${capability} integrity.`);
+  }
 }
 
 export function normalizeParsedCli(args: ParsedCliArgs): NormalizedPlan {

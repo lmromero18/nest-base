@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type {
   CapabilityDescriptor,
@@ -7,6 +8,7 @@ import type {
   HttpCoreReleaseEvidence,
 } from './types.js';
 import type { ArtifactLoaders, ArtifactRecord } from './artifact-gate.js';
+import { assertSha512Integrity } from './artifact-gate.js';
 
 export const REGISTRY_REVISION = '2026-07-27';
 export const DEFAULT_WIZARD_VERSION = '0.1.0';
@@ -14,25 +16,82 @@ const DEFAULT_CORE_VERSION = '0.1.0';
 const DEFAULT_LOGGER_VERSION = '1.0.0';
 export const DEFAULT_CORE_INTEGRITY =
   'sha512-wjDf/s0C9qVaXHhtwJV38Dr9rZuxLWFxuqT1gPgK5WJ33zJw2TEixpV22EcPn1iY8YI3ErgGOzktv8ywtqty/g==';
+export interface HttpCoreReleaseEvidenceInput {
+  package: '@nest-base/http-core';
+  version: string;
+  integrity: `sha512-${string}`;
+  tarballUrl: string;
+  tarballBytes: Uint8Array;
+  audit: HttpCoreReleaseEvidence['audit'];
+  consumer: HttpCoreReleaseEvidence['consumer'];
+}
+
+export function createHttpCoreReleaseEvidence(
+  input: HttpCoreReleaseEvidenceInput,
+): HttpCoreReleaseEvidence {
+  assertSha512Integrity(input.integrity);
+  const artifactDigest =
+    `sha512-${createHash('sha512').update(input.tarballBytes).digest('base64')}` as const;
+  if (artifactDigest !== input.integrity)
+    throw new Error('HTTP-core release tarball digest mismatch.');
+  const payload = {
+    schema: 'http-core-release-evidence/v1' as const,
+    package: input.package,
+    version: input.version,
+    integrity: input.integrity,
+    published: {
+      package: input.package,
+      version: input.version,
+      integrity: input.integrity,
+      tarball: input.tarballUrl,
+    },
+    artifactDigest,
+    audit: input.audit,
+    consumer: input.consumer,
+  };
+  return bindHttpCoreReleaseEvidence({
+    ...payload,
+    evidenceDigest: digestEvidence(payload),
+  });
+}
+
 export function bindHttpCoreReleaseEvidence(
   evidence: HttpCoreReleaseEvidence,
 ): HttpCoreReleaseEvidence {
+  assertSha512Integrity(evidence.integrity);
+  assertSha512Integrity(evidence.published.integrity);
+  assertSha512Integrity(evidence.artifactDigest);
   if (
+    evidence.schema !== 'http-core-release-evidence/v1' ||
     evidence.package !== evidence.published.package ||
     evidence.version !== evidence.published.version ||
     evidence.integrity !== evidence.published.integrity ||
+    evidence.integrity !== evidence.artifactDigest ||
     evidence.published.package !== '@nest-base/http-core' ||
-    !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(evidence.published.integrity)
+    !/^https:\/\/registry\.npmjs\.org\/@nest-base\/http-core\/-\/http-core-[^/]+\.tgz$/.test(
+      evidence.published.tarball,
+    )
   )
     throw new Error('HTTP-core release evidence identity mismatch.');
   if (
-    evidence.audit.passed !== true ||
-    evidence.consumer.passed !== true ||
-    evidence.consumer.modes.join(',') !== 'esm,cjs'
+    evidence.audit.tool !== 'http-core-tarball-audit' ||
+    evidence.audit.status !== 'passed' ||
+    evidence.audit.package !== evidence.package ||
+    evidence.audit.version !== evidence.version ||
+    evidence.audit.artifactDigest !== evidence.artifactDigest ||
+    evidence.consumer.tool !== 'http-core-independent-consumer' ||
+    evidence.consumer.status !== 'passed' ||
+    evidence.consumer.package !== evidence.package ||
+    evidence.consumer.version !== evidence.version ||
+    evidence.consumer.artifactDigest !== evidence.artifactDigest ||
+    evidence.consumer.modes.join(',') !== 'esm,cjs' ||
+    evidence.consumer.modes.length !== 2
   )
     throw new Error(
-      'HTTP-core release evidence consumer/audit proof is incomplete.',
+      'HTTP-core release evidence audit/consumer proof is incomplete.',
     );
+  if (evidence.evidenceDigest !== digestEvidence(stripDigest(evidence)))
+    throw new Error('HTTP-core release evidence digest mismatch.');
   return evidence;
 }
 
@@ -40,6 +99,16 @@ export function assertHttpCoreReleaseEvidence(
   evidence: HttpCoreReleaseEvidence,
 ): HttpCoreReleaseEvidence {
   return bindHttpCoreReleaseEvidence(evidence);
+}
+
+function stripDigest(evidence: HttpCoreReleaseEvidence) {
+  return Object.fromEntries(
+    Object.entries(evidence).filter(([key]) => key !== 'evidenceDigest'),
+  );
+}
+
+function digestEvidence(payload: unknown): `sha256-${string}` {
+  return `sha256-${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
 }
 
 export type RegistryFetch = (

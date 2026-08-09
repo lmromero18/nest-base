@@ -9,7 +9,9 @@ import {
   resolveSource,
   assertHttpCoreReleaseEvidence,
   bindHttpCoreReleaseEvidence,
+  createHttpCoreReleaseEvidence,
 } from '../../../packages/create-nest-base/registry';
+import type { HttpCoreReleaseEvidence } from '../../../packages/create-nest-base/types';
 
 describe('create-nest-base capability registry', () => {
   it('keeps CRUD locked, exposes logger, and explains every future capability', () => {
@@ -46,24 +48,30 @@ describe('create-nest-base capability registry', () => {
     });
     expect(httpCore?.defaultIntegrity).toBeUndefined();
     expect(httpCore?.compatibility).toContain('NestJS 11');
-    const evidence = {
+    const tarballBytes = new Uint8Array(64);
+    const evidence = createHttpCoreReleaseEvidence({
       package: '@nest-base/http-core',
       version: '0.1.0',
-      integrity:
-        'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
-      published: {
+      integrity: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
+      tarballUrl:
+        'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+      tarballBytes,
+      audit: {
+        tool: 'http-core-tarball-audit',
         package: '@nest-base/http-core',
         version: '0.1.0',
-        integrity:
-          'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
+        artifactDigest: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
+        status: 'passed',
       },
-      audit: { command: 'bun run audit:http-core:tarball', passed: true },
       consumer: {
-        command: 'bun run verify:http-core:consumer',
-        passed: true,
-        modes: ['esm', 'cjs'],
+        tool: 'http-core-independent-consumer',
+        package: '@nest-base/http-core',
+        version: '0.1.0',
+        artifactDigest: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
+        status: 'passed',
+        modes: ['esm', 'cjs'] as const,
       },
-    } as const;
+    });
     expect(assertHttpCoreReleaseEvidence(evidence)).toEqual(evidence);
 
     for (const entry of CAPABILITY_REGISTRY.slice(3)) {
@@ -78,24 +86,30 @@ describe('create-nest-base capability registry', () => {
   });
 
   it('blocks stale or incomplete HTTP-core release evidence', () => {
-    const evidence = {
+    const tarballBytes = new Uint8Array(64);
+    const evidence = createHttpCoreReleaseEvidence({
       package: '@nest-base/http-core',
       version: '0.1.0',
-      integrity:
-        'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
-      published: {
+      integrity: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
+      tarballUrl:
+        'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+      tarballBytes,
+      audit: {
+        tool: 'http-core-tarball-audit',
         package: '@nest-base/http-core',
         version: '0.1.0',
-        integrity:
-          'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
+        artifactDigest: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
+        status: 'passed',
       },
-      audit: { command: 'bun run audit:http-core:tarball', passed: true },
       consumer: {
-        command: 'bun run verify:http-core:consumer',
-        passed: true,
-        modes: ['esm', 'cjs'],
+        tool: 'http-core-independent-consumer',
+        package: '@nest-base/http-core',
+        version: '0.1.0',
+        artifactDigest: `sha512-${createHash('sha512').update(tarballBytes).digest('base64')}`,
+        status: 'passed',
+        modes: ['esm', 'cjs'] as const,
       },
-    } as const;
+    });
     expect(bindHttpCoreReleaseEvidence(evidence)).toEqual(evidence);
     expect(() =>
       bindHttpCoreReleaseEvidence({ ...evidence, version: '0.1.1' }),
@@ -103,9 +117,29 @@ describe('create-nest-base capability registry', () => {
     expect(() =>
       bindHttpCoreReleaseEvidence({
         ...evidence,
-        consumer: { ...evidence.consumer, modes: ['esm'] },
+        consumer: {
+          ...evidence.consumer,
+          modes: [
+            'esm',
+          ] as unknown as HttpCoreReleaseEvidence['consumer']['modes'],
+        },
       }),
     ).toThrow('consumer');
+    expect(() =>
+      bindHttpCoreReleaseEvidence({
+        ...evidence,
+        audit: { ...evidence.audit, artifactDigest: 'sha512-A' },
+      }),
+    ).toThrow('proof');
+    expect(() =>
+      bindHttpCoreReleaseEvidence({
+        ...evidence,
+        audit: {
+          ...evidence.audit,
+          tool: 'false' as unknown as HttpCoreReleaseEvidence['audit']['tool'],
+        },
+      }),
+    ).toThrow('audit');
   });
 
   it('fails closed for unknown and unavailable selections before resolution', () => {

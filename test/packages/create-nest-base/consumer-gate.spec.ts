@@ -82,6 +82,8 @@ describe('create-nest-base independent consumer gate', () => {
     expect(manifest.dependencies['@nest-base/http-core']).toContain(
       'http-core.tgz',
     );
+    expect(manifest.dependencies['@nest-base/core']).toContain('core.tgz');
+    expect(manifest.dependencies['@nest-base/core']).not.toBe('0.1.0');
   });
 
   it('runs both ESM and CJS build/runtime commands for HTTP-core', () => {

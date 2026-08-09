@@ -48,6 +48,7 @@ export interface ResolvedCapability {
 }
 
 export interface HttpCoreReleaseEvidence {
+  schema: 'http-core-release-evidence/v1';
   package: '@nest-base/http-core';
   version: string;
   integrity: `sha512-${string}`;
@@ -55,9 +56,25 @@ export interface HttpCoreReleaseEvidence {
     package: '@nest-base/http-core';
     version: string;
     integrity: `sha512-${string}`;
+    tarball: string;
   };
-  audit: { command: string; passed: true };
-  consumer: { command: string; passed: true; modes: readonly string[] };
+  artifactDigest: `sha512-${string}`;
+  audit: {
+    tool: 'http-core-tarball-audit';
+    package: '@nest-base/http-core';
+    version: string;
+    artifactDigest: `sha512-${string}`;
+    status: 'passed';
+  };
+  consumer: {
+    tool: 'http-core-independent-consumer';
+    package: '@nest-base/http-core';
+    version: string;
+    artifactDigest: `sha512-${string}`;
+    status: 'passed';
+    modes: readonly ['esm', 'cjs'];
+  };
+  evidenceDigest: `sha256-${string}`;
 }
 
 export interface NormalizedPlan {

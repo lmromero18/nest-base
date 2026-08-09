@@ -7,7 +7,22 @@ import {
 } from '../../../packages/create-nest-base/cli';
 import { normalizeInteractiveInput } from '../../../packages/create-nest-base/ux';
 
+const validIntegrity = `sha512-${Buffer.alloc(64).toString('base64')}`;
+
 describe('create-nest-base CI normalization', () => {
+  it('rejects a sha512 value with an incomplete digest before artifact resolution', () => {
+    expect(() =>
+      normalizeCiInput({
+        ci: true,
+        target: 'target',
+        packageManager: 'bun',
+        selections: ['core-crud'],
+        coreSource: { kind: 'registry', spec: '@nest-base/core@0.1.0' },
+        coreVersion: '0.1.0',
+        coreIntegrity: 'sha512-A',
+      }),
+    ).toThrow('integrity');
+  });
   it('requires explicit CI target and selected capability sources/versions', () => {
     expect(() => normalizeCiInput({ ci: true })).toThrow('target');
     expect(() =>
@@ -25,7 +40,7 @@ describe('create-nest-base CI normalization', () => {
         packageManager: 'bun',
         selections: ['core-crud'],
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-' + 'A'.repeat(88),
+        coreIntegrity: validIntegrity,
       }),
     ).toThrow('core source');
     expect(() =>
@@ -34,7 +49,7 @@ describe('create-nest-base CI normalization', () => {
         target: './demo',
         packageManager: 'bun',
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
-        coreIntegrity: 'sha512-' + 'A'.repeat(88),
+        coreIntegrity: validIntegrity,
       }),
     ).toThrow('--select');
     expect(() =>
@@ -64,7 +79,7 @@ describe('create-nest-base CI normalization', () => {
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-' + 'A'.repeat(88),
+        coreIntegrity: validIntegrity,
       }),
     ).toThrow('logger source');
     expect(() =>
@@ -75,9 +90,9 @@ describe('create-nest-base CI normalization', () => {
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-' + 'A'.repeat(88),
+        coreIntegrity: validIntegrity,
         loggerSource: { kind: 'registry', spec: '@nest-base/logger@2.0.0' },
-        loggerIntegrity: 'sha512-' + 'A'.repeat(88),
+        loggerIntegrity: validIntegrity,
       }),
     ).toThrow('logger version');
     expect(() =>
@@ -88,7 +103,7 @@ describe('create-nest-base CI normalization', () => {
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-' + 'A'.repeat(88),
+        coreIntegrity: validIntegrity,
         loggerSource: { kind: 'registry', spec: '@nest-base/logger@2.0.0' },
         loggerVersion: '2.0.0',
       }),
@@ -111,7 +126,7 @@ describe('create-nest-base CI normalization', () => {
         packageManager: 'bun',
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-' + 'A'.repeat(88),
+        coreIntegrity: validIntegrity,
       }),
     ).toThrow('--select');
   });
@@ -137,7 +152,7 @@ describe('create-nest-base CI normalization', () => {
       packageManager: 'bun' as const,
       coreSource: { kind: 'registry' as const, spec: '@nest-base/core@1.2.3' },
       coreVersion: '1.2.3',
-      coreIntegrity: ('sha512-' + 'A'.repeat(88)) as `sha512-${string}`,
+      coreIntegrity: validIntegrity as `sha512-${string}`,
       selections: ['core-crud', 'http-core'],
     };
     expect(() => normalizeCiInput(base)).toThrow('http-core source');
@@ -164,7 +179,7 @@ describe('create-nest-base CI normalization', () => {
       ...base,
       httpCoreSource: { kind: 'registry', spec: '@nest-base/http-core@0.1.0' },
       httpCoreVersion: '0.1.0',
-      httpCoreIntegrity: 'sha512-' + 'A'.repeat(88),
+      httpCoreIntegrity: validIntegrity,
     });
     expect(plan.capabilities.map((entry) => entry.id)).toEqual([
       'core-crud',
@@ -179,13 +194,13 @@ describe('create-nest-base CI normalization', () => {
       selections: ['logger'],
       coreVersion: '1.2.3',
       coreSource: { kind: 'registry' as const, spec: '@nest-base/core@1.2.3' },
-      coreIntegrity: ('sha512-' + 'A'.repeat(88)) as `sha512-${string}`,
+      coreIntegrity: validIntegrity as `sha512-${string}`,
       loggerVersion: '2.0.0',
       loggerSource: {
         kind: 'registry' as const,
         spec: '@nest-base/logger@2.0.0',
       },
-      loggerIntegrity: ('sha512-' + 'A'.repeat(88)) as `sha512-${string}`,
+      loggerIntegrity: validIntegrity as `sha512-${string}`,
       wizardVersion: '0.1.0',
     };
     expect(serializePlan(normalizeCiInput({ ...input, ci: true }))).toBe(
@@ -209,7 +224,7 @@ describe('create-nest-base CI normalization', () => {
         '--core-source',
         '@nest-base/core@1.2.3',
         '--core-integrity',
-        'sha512-' + 'A'.repeat(88),
+        validIntegrity,
       ]),
     ).toMatchObject({ ci: true, dryRun: true, target: './demo' });
   });
@@ -229,7 +244,7 @@ describe('create-nest-base CI normalization', () => {
       '--core-source',
       '@nest-base/core@1.2.3',
       '--core-integrity',
-      'sha512-' + 'A'.repeat(88),
+      validIntegrity,
     ]);
 
     expect(runCli(args).exitCode).toBe(0);
