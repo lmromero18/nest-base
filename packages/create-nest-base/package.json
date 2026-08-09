@@ -1,0 +1,38 @@
+{
+  "name": "create-nest-base",
+  "version": "0.1.5",
+  "description": "Bun-native CLI for creating NestJS projects from nest-base capabilities",
+  "type": "module",
+  "main": "./index.ts",
+  "module": "./index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "bin": {
+    "create-nest-base": "./index.ts"
+  },
+  "private": false,
+  "license": "MIT",
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "files": [
+    "index.ts",
+    "cli.ts",
+    "artifact-gate.ts",
+    "consumer-gate.ts",
+    "install.ts",
+    "metadata.ts",
+    "preflight.ts",
+    "registry.ts",
+    "scaffold.ts",
+    "types.ts",
+    "ux.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "pack:check": "npm pack --dry-run --json",
+    "check": "bun run pack:check"
+  }
+}

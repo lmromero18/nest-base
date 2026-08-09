@@ -6,7 +6,14 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['eslint.config.mjs'],
+    ignores: [
+      'eslint.config.mjs',
+      'packages/core/dist/**',
+      'packages/core/.build-types/**',
+      'packages/http-core/dist/**',
+      'packages/http-core/.build-work/**',
+      'packages/http-core/.build-types/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -15,7 +22,6 @@ export default tseslint.config(
     languageOptions: {
       globals: {
         ...globals.node,
-        ...globals.jest,
       },
       sourceType: 'commonjs',
       parserOptions: {
@@ -25,10 +31,60 @@ export default tseslint.config(
     },
   },
   {
+    files: [
+      'src/common/services/base.service.ts',
+      'src/common/query/query-string-parser.ts',
+    ],
     rules: {
-      '@typescript-eslint/no-explicit-any': 'off',
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '../../modules/**',
+                '../../../modules/**',
+                '../../config/**',
+                '../../../config/**',
+                '../guards/**',
+                '../decorators/**',
+                '../context/request-context.interceptor',
+                '../interfaces/**',
+                '../http/**',
+                '../logger/**',
+                '../filters/**',
+                '../responses/**',
+                '../controller/**',
+              ],
+              message:
+                'Core code must not depend on application modules, policy, or transport/infrastructure adapters.',
+            },
+            {
+              group: [
+                '@nestjs/core',
+                '@nestjs/config',
+                '@nestjs/jwt',
+                '@nestjs/platform-fastify',
+                '@nestjs/swagger',
+                'fastify',
+                'nodemailer',
+              ],
+              message:
+                'Core code must not depend on transport, authentication, Swagger, or outbound integration packages.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'warn',
+      // La librería base coerce query params y valores de log (unknown → string) a propósito
+      '@typescript-eslint/no-base-to-string': 'off',
       '@typescript-eslint/no-floating-promises': 'warn',
-      '@typescript-eslint/no-unsafe-argument': 'warn'
+      '@typescript-eslint/no-unsafe-argument': 'warn',
+      'prettier/prettier': ['error', { endOfLine: 'auto' }],
     },
   },
 );
