@@ -2,6 +2,16 @@ export type CapabilityStatus = 'available' | 'unavailable';
 export type CapabilityRequiredness = 'locked' | 'optional' | 'future';
 export type SourceKind = 'registry' | 'file' | 'url';
 export type GeneratorModel = 'table-crud' | 'view' | 'read-only';
+export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun';
+
+export const PACKAGE_MANAGERS = ['npm', 'pnpm', 'yarn', 'bun'] as const;
+
+export function isPackageManager(value: unknown): value is PackageManager {
+  return (
+    typeof value === 'string' &&
+    (PACKAGE_MANAGERS as readonly string[]).includes(value)
+  );
+}
 
 export interface Source {
   kind: SourceKind;
@@ -37,9 +47,13 @@ export interface NormalizedPlan {
   schemaVersion: 1;
   wizardVersion: string;
   target: string;
+  packageManager: PackageManager;
+  installEnabled: boolean;
   registryRevision: string;
-  capabilities: ResolvedCapability[];
-  dependencySections: Record<string, 'dependencies' | 'devDependencies'>;
+  capabilities: readonly ResolvedCapability[];
+  dependencySections: Readonly<
+    Record<string, 'dependencies' | 'devDependencies'>
+  >;
   previewOnly: boolean;
 }
 
@@ -50,6 +64,8 @@ export interface CapabilitySourceInput {
 
 export interface InteractiveInput {
   target: string;
+  packageManager?: PackageManager;
+  installEnabled?: boolean;
   logger?: boolean;
   selections?: string[];
   coreVersion?: string;
@@ -73,6 +89,10 @@ export interface ParsedCliArgs {
   help: boolean;
   retry?: boolean;
   target?: string;
+  packageManager?: PackageManager;
+  skipInstall?: boolean;
+  strict?: boolean;
+  skipGit?: boolean;
   selections?: string[];
   coreVersion?: string;
   coreSource?: string;

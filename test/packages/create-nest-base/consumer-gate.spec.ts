@@ -113,6 +113,7 @@ describe('create-nest-base independent consumer gate', () => {
       const result = await runCliPipeline(
         {
           ci: true,
+          packageManager: 'bun',
           dryRun: false,
           yes: true,
           help: false,

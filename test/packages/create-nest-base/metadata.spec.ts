@@ -16,6 +16,8 @@ const plan: NormalizedPlan = {
   schemaVersion: 1,
   wizardVersion: '0.1.0',
   target: join(tmpdir(), 'create-nest-base-metadata', 'demo'),
+  packageManager: 'bun',
+  installEnabled: true,
   registryRevision: '2026-07-27',
   capabilities: [
     {

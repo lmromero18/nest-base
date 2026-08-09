@@ -23,7 +23,13 @@ import type {
 } from './artifact-gate.js';
 import { confirmPlan, normalizeInteractiveInput, renderPreview } from './ux.js';
 import { createIndependentConsumerGate } from './consumer-gate.js';
-import type { CiInput, NormalizedPlan, ParsedCliArgs } from './types.js';
+import {
+  isPackageManager,
+  type CiInput,
+  type NormalizedPlan,
+  type PackageManager,
+  type ParsedCliArgs,
+} from './types.js';
 import { dirname, basename } from 'node:path';
 import { readFileSync } from 'node:fs';
 import {
@@ -53,6 +59,9 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
     yes: false,
     help: false,
     retry: false,
+    skipInstall: false,
+    strict: true,
+    skipGit: true,
   };
   const selections: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
@@ -63,6 +72,11 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
     else if (arg === '--yes') result.yes = true;
     else if (arg === '--help' || arg === '-h') result.help = true;
     else if (arg === '--retry') result.retry = true;
+    else if (arg === '--skip-install') result.skipInstall = true;
+    else if (arg === '--strict') result.strict = true;
+    else if (arg === '--skip-git') result.skipGit = true;
+    else if (arg === '--package-manager')
+      result.packageManager = requiredValue(arg, next) as PackageManager;
     else if (arg === '--logger') selections.push('logger');
     else if (arg === '--select')
       selections.push(...requiredValue(arg, next).split(','));
@@ -90,6 +104,7 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
         '--logger-version',
         '--logger-source',
         '--logger-integrity',
+        '--package-manager',
       ].includes(arg)
     )
       index += 1;
@@ -110,6 +125,7 @@ function requiredValue(option: string, value: string | undefined): string {
 export function normalizeCiInput(input: CiInput): NormalizedPlan {
   if (!input.target?.trim())
     throw new Error('CI mode requires an explicit target.');
+  const packageManager = requirePackageManager(input.packageManager, true);
   const target = input.target;
   const selections = input.selections ?? ['core-crud'];
   const descriptors = resolveCapabilities(selections);
@@ -130,6 +146,8 @@ export function normalizeCiInput(input: CiInput): NormalizedPlan {
   return normalizeInteractiveInput({
     ...input,
     target,
+    packageManager,
+    installEnabled: input.installEnabled ?? true,
     logger: hasLogger,
     coreSource: input.coreSource,
     coreVersion: input.coreVersion,
@@ -161,6 +179,8 @@ export function normalizeParsedCli(args: ParsedCliArgs): NormalizedPlan {
     return normalizeCiInput({
       ci: true,
       target: args.target ?? '',
+      packageManager: args.packageManager,
+      installEnabled: !args.skipInstall,
       selections: args.selections,
       coreVersion: args.coreVersion,
       coreSource: args.coreSource ? inferSource(args.coreSource) : undefined,
@@ -174,6 +194,8 @@ export function normalizeParsedCli(args: ParsedCliArgs): NormalizedPlan {
   }
   return normalizeInteractiveInput({
     target: args.target ?? '',
+    packageManager: args.packageManager,
+    installEnabled: !args.skipInstall,
     logger: args.selections?.includes('logger'),
     selections: args.selections,
     coreVersion: args.coreVersion,
@@ -185,6 +207,19 @@ export function normalizeParsedCli(args: ParsedCliArgs): NormalizedPlan {
       : undefined,
     loggerIntegrity: args.loggerIntegrity,
   });
+}
+
+function requirePackageManager(
+  value: unknown,
+  required: boolean,
+): PackageManager {
+  if (value === undefined && !required) return 'bun';
+  if (!isPackageManager(value)) {
+    throw new Error(
+      `${required ? 'CI mode requires' : 'Invalid'} package manager; allowed values are npm, pnpm, yarn, or bun.`,
+    );
+  }
+  return value;
 }
 
 export function serializePlan(plan: NormalizedPlan): string {
@@ -351,7 +386,9 @@ export function createDefaultPipelineDependencies(
 export function formatHelp(): string {
   return [
     'create-nest-base [--ci] --target <directory> [options]',
+    '--package-manager <npm|pnpm|yarn|bun>  Required in CI; interactive defaults to bun.',
     '--select <core-crud,logger>  Select capabilities (core-crud is mandatory).',
+    '--skip-install              Disable the final package-manager install.',
     '--dry-run                   Preview the normalized plan without writes.',
     '--yes                       Confirm a complete plan in CI.',
     '--retry                     Retry installation in an existing scaffold without deleting files.',

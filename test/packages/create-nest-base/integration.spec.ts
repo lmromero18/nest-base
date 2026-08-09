@@ -97,6 +97,7 @@ function setup() {
 function args(target: string, dryRun = false) {
   return {
     ci: true,
+    packageManager: 'bun',
     dryRun,
     yes: true,
     help: false,
@@ -122,6 +123,7 @@ describe('create-nest-base temporary-root acceptance coverage', () => {
     });
     const ci = normalizeCiInput({
       ci: true,
+      packageManager: 'bun',
       target: 'C:\\demo',
       coreVersion: '1.0.0',
       coreSource: { kind: 'registry', spec: '@nest-base/core@1.0.0' },

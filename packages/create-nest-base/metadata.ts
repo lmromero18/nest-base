@@ -59,7 +59,7 @@ export interface NestBaseMirror {
   schemaVersion: 1;
   wizardVersion: string;
   manifestPath: '.nest-base/manifest.json';
-  capabilities: ResolvedCapability[];
+  capabilities: readonly ResolvedCapability[];
 }
 
 export interface CanonicalManifest {
@@ -67,7 +67,7 @@ export interface CanonicalManifest {
   wizardVersion: string;
   target: string;
   registryRevision: string;
-  resolvedEntries: ResolvedCapability[];
+  resolvedEntries: readonly ResolvedCapability[];
   dependencySections: {
     dependencies: Record<string, string>;
     devDependencies: Record<string, string>;

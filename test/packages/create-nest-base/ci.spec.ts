@@ -10,13 +10,14 @@ import { normalizeInteractiveInput } from '../../../packages/create-nest-base/ux
 describe('create-nest-base CI normalization', () => {
   it('requires explicit CI target and selected capability sources/versions', () => {
     expect(() => normalizeCiInput({ ci: true })).toThrow('target');
-    expect(() => normalizeCiInput({ ci: true, target: './demo' })).toThrow(
-      'core source',
-    );
+    expect(() =>
+      normalizeCiInput({ ci: true, target: './demo', packageManager: 'bun' }),
+    ).toThrow('core source');
     expect(() =>
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         coreVersion: '1.2.3',
         coreIntegrity: 'sha512-core',
       }),
@@ -25,6 +26,7 @@ describe('create-nest-base CI normalization', () => {
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreIntegrity: 'sha512-core',
       }),
@@ -33,6 +35,7 @@ describe('create-nest-base CI normalization', () => {
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
       }),
@@ -41,6 +44,7 @@ describe('create-nest-base CI normalization', () => {
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
         coreIntegrity: 'sha512-pending',
@@ -50,6 +54,7 @@ describe('create-nest-base CI normalization', () => {
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
@@ -60,6 +65,7 @@ describe('create-nest-base CI normalization', () => {
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
@@ -72,6 +78,7 @@ describe('create-nest-base CI normalization', () => {
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
@@ -84,6 +91,7 @@ describe('create-nest-base CI normalization', () => {
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         selections: ['websocket'],
       }),
     ).toThrow('unavailable');
@@ -92,6 +100,7 @@ describe('create-nest-base CI normalization', () => {
   it('produces byte-equivalent CI and interactive plans', () => {
     const input = {
       target: './demo',
+      packageManager: 'bun' as const,
       selections: ['logger'],
       coreVersion: '1.2.3',
       coreSource: { kind: 'registry' as const, spec: '@nest-base/core@1.2.3' },
@@ -113,6 +122,8 @@ describe('create-nest-base CI normalization', () => {
     expect(
       parseCliArgs([
         '--ci',
+        '--package-manager',
+        'bun',
         '--dry-run',
         '--target',
         './demo',
@@ -131,6 +142,8 @@ describe('create-nest-base CI normalization', () => {
   it('accepts a complete explicit CI plan and rejects silently ignored confirmation flags', () => {
     const args = parseCliArgs([
       '--ci',
+      '--package-manager',
+      'bun',
       '--yes',
       '--target',
       './demo',

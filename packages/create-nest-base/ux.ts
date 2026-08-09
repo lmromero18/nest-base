@@ -12,6 +12,7 @@ import type {
   InteractiveInput,
   NormalizedPlan,
 } from './types.js';
+import { isPackageManager } from './types.js';
 
 export interface InteractiveCard {
   id: string;
@@ -65,6 +66,11 @@ export function normalizeInteractiveInput(
 ): NormalizedPlan {
   if (!input.target?.trim())
     throw new Error('An interactive target is required.');
+  if (
+    input.packageManager !== undefined &&
+    !isPackageManager(input.packageManager)
+  )
+    throw new Error('Package manager must be npm, pnpm, yarn, or bun.');
   const selected =
     input.selections ??
     (input.logger ? ['core-crud', 'logger'] : ['core-crud']);
@@ -88,20 +94,27 @@ export function normalizeInteractiveInput(
     return makeResolvedCapability(descriptor, version, source, integrity);
   });
 
-  return {
+  const plan: NormalizedPlan = {
     schemaVersion: 1,
     wizardVersion: input.wizardVersion ?? DEFAULT_WIZARD_VERSION,
     target: input.target.trim(),
+    packageManager: input.packageManager ?? 'bun',
+    installEnabled: input.installEnabled ?? true,
     registryRevision: REGISTRY_REVISION,
-    capabilities,
-    dependencySections: Object.fromEntries(
-      capabilities.map((entry) => [
-        entry.id,
-        getCapability(entry.id).dependencySection,
-      ]),
+    capabilities: Object.freeze(
+      capabilities.map((capability) => Object.freeze(capability)),
+    ),
+    dependencySections: Object.freeze(
+      Object.fromEntries(
+        capabilities.map((entry) => [
+          entry.id,
+          getCapability(entry.id).dependencySection,
+        ]),
+      ),
     ),
     previewOnly: true,
   };
+  return Object.freeze(plan);
 }
 
 export function renderPreview(plan: NormalizedPlan): string {
@@ -112,6 +125,8 @@ export function renderPreview(plan: NormalizedPlan): string {
   return [
     'Create Nest Base plan preview',
     `Target: ${plan.target}`,
+    `Package manager: ${plan.packageManager}`,
+    `Install: ${plan.installEnabled ? 'enabled' : 'disabled'}`,
     'Capabilities:',
     ...rows,
     'No files, manifests, packages, or installs are written in this phase.',

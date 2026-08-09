@@ -20,6 +20,7 @@ const manifestPath = join(target, '.nest-base', 'manifest.json');
 
 const args = {
   ci: true,
+  packageManager: 'bun' as const,
   dryRun: false,
   yes: true,
   help: false,

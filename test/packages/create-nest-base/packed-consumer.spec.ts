@@ -122,6 +122,8 @@ function runPackedCi(workspace: string, target: string, coreArchive: string) {
       '--bun',
       'create-nest-base',
       '--ci',
+      '--package-manager',
+      'bun',
       '--target',
       target,
       '--yes',
