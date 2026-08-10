@@ -22,6 +22,22 @@
       "packed wizard acceptance"
     ]
   },
+  "managerAcceptance": {
+    "bun": {
+      "status": "passed"
+    },
+    "npm": {
+      "status": "passed"
+    },
+    "pnpm": {
+      "status": "blocked",
+      "reason": "environment rejected the packed install: node:sqlite unavailable"
+    },
+    "yarn": {
+      "status": "unavailable",
+      "reason": "executable not found on PATH"
+    }
+  },
   "evidence": {
     "corePackedConsumer": true,
     "httpCorePackedConsumer": true,

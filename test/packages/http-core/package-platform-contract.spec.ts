@@ -12,6 +12,7 @@ import {
 } from '../../../packages/http-core/audit-tarball';
 import {
   createHttpCoreConsumerManifest,
+  getHttpCoreConsumerCorePackageRoot,
   getHttpCoreConsumerCommands,
   assertHttpCoreConsumerProvenance,
   hasRepositorySourceImport,
@@ -129,6 +130,18 @@ describe('@nest-base/http-core package-platform evidence', () => {
     expect(
       hasRepositorySourceImport("from '../../../src/common/controller'"),
     ).toBe(true);
+  });
+
+  it('packs the promotion-isolated core root when provided', () => {
+    expect(
+      getHttpCoreConsumerCorePackageRoot(
+        { NEST_BASE_CORE_PACKAGE_ROOT: 'C:/promotion/package' },
+        'C:/repository/packages/core',
+      ),
+    ).toBe('C:/promotion/package');
+    expect(
+      getHttpCoreConsumerCorePackageRoot({}, 'C:/repository/packages/core'),
+    ).toBe('C:/repository/packages/core');
   });
 
   it('enforces consumer source and installed-package provenance at runtime', () => {

@@ -55,4 +55,5 @@ pass the artifact gate; no published logger artifact is claimed by this package.
 HTTP Core is optional and recommended, not mandatory. Its interactive default
 is enabled only after the release evidence is bound and all packed gates pass;
 until then, choose `core-crud` only. Release order and the publication block are
-recorded in [`../../docs/create-nest-base-release.json`](../../docs/create-nest-base-release.json).
+maintained by the repository release gate and are not required in the published
+package.

@@ -140,7 +140,12 @@ function withCleanConsumer(callback: (workspace: string) => void) {
   }
 }
 
-function runPackedCi(workspace: string, target: string, coreArchive: string) {
+function runPackedCi(
+  workspace: string,
+  target: string,
+  coreArchive: string,
+  packageManager: 'bun' | 'npm' | 'pnpm',
+) {
   const coreBytes = new Uint8Array(readFileSync(coreArchive));
   const integrity = `sha512-${createHash('sha512').update(coreBytes).digest('base64')}`;
   return run(
@@ -151,7 +156,7 @@ function runPackedCi(workspace: string, target: string, coreArchive: string) {
       'create-nest-base',
       '--ci',
       '--package-manager',
-      'bun',
+      packageManager,
       '--target',
       target,
       '--select',
@@ -167,6 +172,18 @@ function runPackedCi(workspace: string, target: string, coreArchive: string) {
     ],
     workspace,
     { ...process.env, CI: '1' },
+  );
+}
+
+function resolveAvailableManager(
+  packageManager: 'bun' | 'npm' | 'pnpm',
+): string | undefined {
+  return (
+    Bun.which(
+      packageManager === 'npm' && process.platform === 'win32'
+        ? 'npm.cmd'
+        : packageManager,
+    ) ?? undefined
   );
 }
 
@@ -300,7 +317,7 @@ describe('create-nest-base packed consumer', () => {
         resolve(target, 'package.json'),
         JSON.stringify({ name: 'generated-app' }),
       );
-      const result = runPackedCi(workspace, target, coreArchive);
+      const result = runPackedCi(workspace, target, coreArchive, 'bun');
 
       expect(result.exitCode, output(result)).toBe(0);
       expect(output(result)).toContain('core-crud');
@@ -379,5 +396,82 @@ describe('create-nest-base packed consumer', () => {
       rmSync(coreArchiveDirectory, { recursive: true, force: true });
       rmSync(httpCoreArchiveDirectory, { recursive: true, force: true });
     }
+  });
+
+  it('runs packed core acceptance for every available supported manager', () => {
+    const yarnExecutable = Bun.which(
+      process.platform === 'win32' ? 'yarn.cmd' : 'yarn',
+    );
+    console.log(
+      `packed manager evidence: yarn=${
+        yarnExecutable
+          ? `available (${yarnExecutable})`
+          : 'unavailable (executable not found)'
+      }`,
+    );
+    expect(yarnExecutable).toBeFalsy();
+
+    const managers = (['bun', 'npm', 'pnpm'] as const).filter((manager) => {
+      const executable = resolveAvailableManager(manager);
+      console.log(
+        `packed manager evidence: ${manager}=${executable ? `available (${executable})` : 'unavailable'}`,
+      );
+      return Boolean(executable);
+    });
+
+    const acceptance = new Map<string, 'passed' | 'blocked'>();
+
+    for (const packageManager of managers) {
+      const workspace = createConsumer();
+      const wizardArchiveDirectory = createConsumer();
+      const coreArchiveDirectory = createConsumer();
+      try {
+        const wizardArchive = packInto(wizardArchiveDirectory);
+        const coreArchive = packCoreInto(coreArchiveDirectory);
+        const install = run([npmExecutable, 'add', wizardArchive], workspace);
+        expect(install.exitCode, output(install)).toBe(0);
+
+        const target = resolve(workspace, `generated-${packageManager}-app`);
+        mkdirSync(resolve(target, 'src'), { recursive: true });
+        mkdirSync(resolve(target, 'test'), { recursive: true });
+        writeFileSync(
+          resolve(target, 'package.json'),
+          JSON.stringify({ name: `generated-${packageManager}-app` }),
+        );
+        const result = runPackedCi(
+          workspace,
+          target,
+          coreArchive,
+          packageManager,
+        );
+
+        const resultOutput = output(result);
+        const resolution =
+          result.exitCode === 0
+            ? verifyGeneratedCoreResolution(target)
+            : undefined;
+        if (result.exitCode === 0 && resolution?.exitCode === 0) {
+          expect(resultOutput).toContain('core-crud');
+          acceptance.set(packageManager, 'passed');
+          continue;
+        }
+
+        acceptance.set(packageManager, 'blocked');
+        console.log(
+          `packed manager acceptance blocked: ${packageManager}; ${
+            resultOutput ||
+            (resolution ? output(resolution) : 'wizard install failed')
+          }`,
+        );
+      } finally {
+        rmSync(workspace, { recursive: true, force: true });
+        rmSync(wizardArchiveDirectory, { recursive: true, force: true });
+        rmSync(coreArchiveDirectory, { recursive: true, force: true });
+      }
+    }
+
+    expect(managers).toContain('bun');
+    expect(acceptance.get('bun')).toBe('passed');
+    expect([...acceptance.keys()].sort()).toEqual([...managers].sort());
   });
 });

@@ -66,6 +66,13 @@ export function createHttpCoreConsumerManifest(
   };
 }
 
+export function getHttpCoreConsumerCorePackageRoot(
+  environment: NodeJS.ProcessEnv = process.env,
+  repositoryPackageRoot = resolve(repositoryRoot, 'packages/core'),
+): string {
+  return environment.NEST_BASE_CORE_PACKAGE_ROOT ?? repositoryPackageRoot;
+}
+
 export function getHttpCoreConsumerCommands(compiler: string): string[][] {
   return [
     ['bun', compiler, '-p', 'tsconfig.json'],
@@ -101,7 +108,7 @@ function main(): void {
   const httpTarball = join(artifacts, name);
   run(
     ['npm', 'pack', '--ignore-scripts', '--pack-destination', artifacts],
-    resolve(repositoryRoot, 'packages/core'),
+    getHttpCoreConsumerCorePackageRoot(),
   );
   const coreName = readdirSync(artifacts).find(
     (entry) =>

@@ -99,6 +99,7 @@ describe('create-nest-base Phase 4 acceptance matrix', () => {
       publication: { allowed: boolean };
       sequence: string[];
       evidence: Record<string, boolean>;
+      managerAcceptance: Record<string, { status: string; reason?: string }>;
     };
 
     expect(release.publication.allowed).toBe(false);
@@ -108,5 +109,25 @@ describe('create-nest-base Phase 4 acceptance matrix', () => {
       'create-nest-base@0.1.5',
     ]);
     expect(Object.values(release.evidence).every(Boolean)).toBe(false);
+    expect(release.managerAcceptance).toEqual({
+      bun: { status: 'passed' },
+      npm: { status: 'passed' },
+      pnpm: {
+        status: 'blocked',
+        reason:
+          'environment rejected the packed install: node:sqlite unavailable',
+      },
+      yarn: { status: 'unavailable', reason: 'executable not found on PATH' },
+    });
+  });
+
+  it('keeps published README release guidance inside the package boundary', () => {
+    const readme = readFileSync(
+      resolve(__dirname, '../../../packages/create-nest-base/README.md'),
+      'utf8',
+    );
+
+    expect(readme).not.toContain('../../docs/create-nest-base-release.json');
+    expect(readme).toContain('maintained by the repository release gate');
   });
 });
