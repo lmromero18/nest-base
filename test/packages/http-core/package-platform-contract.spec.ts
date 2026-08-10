@@ -14,6 +14,7 @@ import {
   createHttpCoreConsumerManifest,
   getHttpCoreConsumerCorePackageRoot,
   getHttpCoreConsumerCommands,
+  getPublishedCoreTypesPath,
   assertHttpCoreConsumerProvenance,
   hasRepositorySourceImport,
 } from '../../../packages/http-core/verify-consumer';
@@ -142,6 +143,21 @@ describe('@nest-base/http-core package-platform evidence', () => {
     expect(
       getHttpCoreConsumerCorePackageRoot({}, 'C:/repository/packages/core'),
     ).toBe('C:/repository/packages/core');
+  });
+
+  it('binds HTTP-core declarations to the promoted core artifact when provided', () => {
+    expect(
+      getPublishedCoreTypesPath(
+        { NEST_BASE_CORE_PACKAGE_ROOT: 'C:/promotion/package' },
+        'C:/repository',
+      ),
+    ).toBe(resolve('C:/promotion/package', 'dist/types/index.d.ts'));
+    expect(getPublishedCoreTypesPath({}, 'C:/repository')).toBe(
+      resolve(
+        'C:/repository',
+        'node_modules/@nest-base/core/dist/types/index.d.ts',
+      ),
+    );
   });
 
   it('enforces consumer source and installed-package provenance at runtime', () => {

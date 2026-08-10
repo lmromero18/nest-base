@@ -7,16 +7,14 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { getPublishedCoreTypesPath } from './verify-consumer.js';
 
 const packageRoot = resolve(import.meta.dir);
 const repositoryRoot = resolve(packageRoot, '../..');
 const distRoot = resolve(packageRoot, 'dist');
 const temporaryRoot = resolve(packageRoot, '.build-work');
 const compiler = resolve(repositoryRoot, 'node_modules/typescript/bin/tsc');
-const publishedCoreTypes = resolve(
-  repositoryRoot,
-  'node_modules/@nest-base/core/dist/types/index.d.ts',
-);
+const publishedCoreTypes = getPublishedCoreTypesPath();
 
 function run(project: string): void {
   const result = Bun.spawnSync(['bun', compiler, '-p', project], {

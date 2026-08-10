@@ -73,6 +73,16 @@ export function getHttpCoreConsumerCorePackageRoot(
   return environment.NEST_BASE_CORE_PACKAGE_ROOT ?? repositoryPackageRoot;
 }
 
+export function getPublishedCoreTypesPath(
+  environment: NodeJS.ProcessEnv = process.env,
+  resolvedRepositoryRoot = repositoryRoot,
+): string {
+  const corePackageRoot =
+    environment.NEST_BASE_CORE_PACKAGE_ROOT ??
+    resolve(resolvedRepositoryRoot, 'node_modules/@nest-base/core');
+  return resolve(corePackageRoot, 'dist/types/index.d.ts');
+}
+
 export function getHttpCoreConsumerCommands(compiler: string): string[][] {
   return [
     ['bun', compiler, '-p', 'tsconfig.json'],

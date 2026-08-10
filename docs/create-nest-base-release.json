@@ -30,14 +30,18 @@
       "status": "passed"
     },
     "pnpm": {
-      "status": "blocked",
-      "reason": "environment rejected the packed install: node:sqlite unavailable"
+      "status": "environment-blocked",
+      "reason": "node:sqlite unavailable"
     },
     "yarn": {
       "status": "unavailable",
       "reason": "executable not found on PATH"
     }
   },
+  "releaseBlockers": [
+    "pnpm: node:sqlite unavailable",
+    "yarn: executable not found on PATH"
+  ],
   "evidence": {
     "corePackedConsumer": true,
     "httpCorePackedConsumer": true,

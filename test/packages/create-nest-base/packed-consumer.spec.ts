@@ -11,6 +11,11 @@ import {
 import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
 import { describe, expect, it, setDefaultTimeout } from 'bun:test';
+import {
+  classifyManagerAcceptance,
+  evaluateManagerAcceptance,
+  type ManagerAcceptanceEvidence,
+} from '../../../packages/create-nest-base/manager-evidence';
 
 setDefaultTimeout(120_000);
 
@@ -144,7 +149,7 @@ function runPackedCi(
   workspace: string,
   target: string,
   coreArchive: string,
-  packageManager: 'bun' | 'npm' | 'pnpm',
+  packageManager: 'bun' | 'npm' | 'pnpm' | 'yarn',
 ) {
   const coreBytes = new Uint8Array(readFileSync(coreArchive));
   const integrity = `sha512-${createHash('sha512').update(coreBytes).digest('base64')}`;
@@ -176,7 +181,7 @@ function runPackedCi(
 }
 
 function resolveAvailableManager(
-  packageManager: 'bun' | 'npm' | 'pnpm',
+  packageManager: 'bun' | 'npm' | 'pnpm' | 'yarn',
 ): string | undefined {
   return (
     Bun.which(
@@ -409,17 +414,28 @@ describe('create-nest-base packed consumer', () => {
           : 'unavailable (executable not found)'
       }`,
     );
-    expect(yarnExecutable).toBeFalsy();
+    const managers = (['bun', 'npm', 'pnpm', 'yarn'] as const).filter(
+      (manager) => {
+        const executable = resolveAvailableManager(manager);
+        console.log(
+          `packed manager evidence: ${manager}=${executable ? `available (${executable})` : 'unavailable'}`,
+        );
+        return Boolean(executable);
+      },
+    );
 
-    const managers = (['bun', 'npm', 'pnpm'] as const).filter((manager) => {
-      const executable = resolveAvailableManager(manager);
-      console.log(
-        `packed manager evidence: ${manager}=${executable ? `available (${executable})` : 'unavailable'}`,
-      );
-      return Boolean(executable);
-    });
-
-    const acceptance = new Map<string, 'passed' | 'blocked'>();
+    const acceptance: Record<
+      'bun' | 'npm' | 'pnpm' | 'yarn',
+      ManagerAcceptanceEvidence
+    > = {
+      bun: classifyManagerAcceptance({ available: true, exitCode: 1 }),
+      npm: classifyManagerAcceptance({ available: true, exitCode: 1 }),
+      pnpm: classifyManagerAcceptance({ available: true, exitCode: 1 }),
+      yarn: classifyManagerAcceptance({
+        available: Boolean(yarnExecutable),
+        exitCode: 1,
+      }),
+    };
 
     for (const packageManager of managers) {
       const workspace = createConsumer();
@@ -450,18 +466,24 @@ describe('create-nest-base packed consumer', () => {
           result.exitCode === 0
             ? verifyGeneratedCoreResolution(target)
             : undefined;
-        if (result.exitCode === 0 && resolution?.exitCode === 0) {
+        const combinedOutput = `${resultOutput}${
+          resolution ? output(resolution) : ''
+        }`;
+        acceptance[packageManager] = classifyManagerAcceptance({
+          available: true,
+          exitCode:
+            result.exitCode === 0 && resolution?.exitCode === 0
+              ? 0
+              : result.exitCode || resolution?.exitCode || 1,
+          output: combinedOutput,
+        });
+        if (acceptance[packageManager].status === 'passed') {
           expect(resultOutput).toContain('core-crud');
-          acceptance.set(packageManager, 'passed');
           continue;
         }
 
-        acceptance.set(packageManager, 'blocked');
         console.log(
-          `packed manager acceptance blocked: ${packageManager}; ${
-            resultOutput ||
-            (resolution ? output(resolution) : 'wizard install failed')
-          }`,
+          `packed manager acceptance ${acceptance[packageManager].status}: ${packageManager}; ${combinedOutput || 'wizard install failed'}`,
         );
       } finally {
         rmSync(workspace, { recursive: true, force: true });
@@ -470,8 +492,25 @@ describe('create-nest-base packed consumer', () => {
       }
     }
 
-    expect(managers).toContain('bun');
-    expect(acceptance.get('bun')).toBe('passed');
-    expect([...acceptance.keys()].sort()).toEqual([...managers].sort());
+    for (const manager of ['bun', 'npm', 'pnpm', 'yarn'] as const)
+      if (!managers.includes(manager))
+        acceptance[manager] = classifyManagerAcceptance({
+          available: false,
+          exitCode: 1,
+        });
+
+    expect(acceptance.bun.status).toBe('passed');
+    expect(acceptance.npm.status).toBe('passed');
+    expect(acceptance.pnpm.status).toBe('environment-blocked');
+    expect(acceptance.yarn.status).toBe(
+      yarnExecutable ? 'passed' : 'unavailable',
+    );
+    const summary = evaluateManagerAcceptance(acceptance);
+    expect(summary.matrixPassed).toBe(false);
+    expect(summary.releaseEvidence).toBe(false);
+    expect(summary.publicationAllowed).toBe(false);
+    expect(summary.blockers).toContain('pnpm: node:sqlite unavailable');
+    if (!yarnExecutable)
+      expect(summary.blockers).toContain('yarn: executable not found on PATH');
   });
 });

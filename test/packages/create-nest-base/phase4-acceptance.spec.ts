@@ -9,6 +9,11 @@ import {
   createPackageManagerAdapter,
   type PackageManager,
 } from '../../../packages/create-nest-base/install';
+import {
+  classifyManagerAcceptance,
+  evaluateManagerAcceptance,
+  type ManagerAcceptanceEvidence,
+} from '../../../packages/create-nest-base/manager-evidence';
 
 const validIntegrity = `sha512-${Buffer.alloc(64).toString('base64')}`;
 const managers: PackageManager[] = ['npm', 'pnpm', 'yarn', 'bun'];
@@ -57,6 +62,60 @@ describe('create-nest-base Phase 4 acceptance matrix', () => {
     ]);
   });
 
+  it('does not treat available-manager failures as a passing matrix', () => {
+    expect(
+      classifyManagerAcceptance({ available: false, exitCode: 1 }),
+    ).toEqual({
+      status: 'unavailable',
+      reason: 'executable not found on PATH',
+    });
+    expect(
+      classifyManagerAcceptance({
+        available: true,
+        exitCode: 1,
+        output: 'error: No such built-in module: node:sqlite',
+      }),
+    ).toEqual({
+      status: 'environment-blocked',
+      reason: 'node:sqlite unavailable',
+    });
+    expect(
+      classifyManagerAcceptance({
+        available: true,
+        exitCode: 1,
+        output: 'wizard exited with code 1',
+      }),
+    ).toEqual({ status: 'failed', reason: 'wizard exited with code 1' });
+
+    const evidence: Record<PackageManager, ManagerAcceptanceEvidence> = {
+      bun: { status: 'passed' },
+      npm: { status: 'passed' },
+      pnpm: {
+        status: 'environment-blocked',
+        reason: 'node:sqlite unavailable',
+      },
+      yarn: { status: 'unavailable', reason: 'executable not found on PATH' },
+    };
+
+    expect(evaluateManagerAcceptance(evidence)).toEqual({
+      matrixPassed: false,
+      releaseEvidence: false,
+      publicationAllowed: false,
+      blockers: [
+        'pnpm: node:sqlite unavailable',
+        'yarn: executable not found on PATH',
+      ],
+    });
+    expect(
+      evaluateManagerAcceptance({
+        bun: { status: 'passed' },
+        npm: { status: 'failed', reason: 'wizard exited with code 1' },
+        pnpm: { status: 'unavailable' },
+        yarn: { status: 'unavailable' },
+      }).releaseEvidence,
+    ).toBe(false);
+  });
+
   it('accepts every capability combination with explicit CI artifact inputs', () => {
     const combinations = [
       ['core-crud'],
@@ -100,6 +159,7 @@ describe('create-nest-base Phase 4 acceptance matrix', () => {
       sequence: string[];
       evidence: Record<string, boolean>;
       managerAcceptance: Record<string, { status: string; reason?: string }>;
+      releaseBlockers: string[];
     };
 
     expect(release.publication.allowed).toBe(false);
@@ -113,12 +173,15 @@ describe('create-nest-base Phase 4 acceptance matrix', () => {
       bun: { status: 'passed' },
       npm: { status: 'passed' },
       pnpm: {
-        status: 'blocked',
-        reason:
-          'environment rejected the packed install: node:sqlite unavailable',
+        status: 'environment-blocked',
+        reason: 'node:sqlite unavailable',
       },
       yarn: { status: 'unavailable', reason: 'executable not found on PATH' },
     });
+    expect(release.releaseBlockers).toEqual([
+      'pnpm: node:sqlite unavailable',
+      'yarn: executable not found on PATH',
+    ]);
   });
 
   it('keeps published README release guidance inside the package boundary', () => {
