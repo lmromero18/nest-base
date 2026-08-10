@@ -20,6 +20,7 @@
     "verify:consumer": "bun tools/verify-consumer.ts",
     "verify:http-core:consumer": "bun packages/http-core/verify-consumer.ts",
     "audit:promotion": "bun tools/promotion-gates.ts",
+    "release:gate": "bun tools/release-gate-cli.ts",
     "install:frozen": "bun install --frozen-lockfile",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx}\" \"test/**/*.{ts,tsx}\" \"tools/**/*.{ts,tsx}\" \"packages/**/*.{ts,tsx}\" \"*.{js,mjs,json}\" \"docs/**/*.md\"",

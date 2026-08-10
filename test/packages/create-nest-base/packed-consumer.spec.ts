@@ -14,7 +14,6 @@ import { describe, expect, it, setDefaultTimeout } from 'bun:test';
 import {
   classifyManagerAcceptance,
   evaluateManagerAcceptance,
-  evaluateReleaseGate,
   type ManagerAcceptanceEvidence,
 } from '../../../packages/create-nest-base/manager-evidence';
 
@@ -498,39 +497,26 @@ describe('create-nest-base packed consumer', () => {
       }
     }
 
-    expect(acceptance.pnpm.status).toBe('environment-blocked');
-    expect(acceptance.yarn.status).toBe('unavailable');
+    expect(Object.keys(acceptance).sort()).toEqual([
+      'bun',
+      'npm',
+      'pnpm',
+      'yarn',
+    ]);
+    for (const result of Object.values(acceptance))
+      expect([
+        'unavailable',
+        'environment-blocked',
+        'passed',
+        'failed',
+      ]).toContain(result.status);
     const summary = evaluateManagerAcceptance(acceptance);
-    expect(summary.matrixPassed).toBe(false);
-    expect(summary.releaseEvidence).toBe(false);
-    expect(summary.publicationAllowed).toBe(false);
-    expect(summary.blockers).toContain('pnpm: node:sqlite unavailable');
-    expect(summary.blockers).toContain('yarn: executable not found on PATH');
-
-    const release = JSON.parse(
-      readFileSync(
-        resolve(__dirname, '../../../docs/create-nest-base-release.json'),
-        'utf8',
-      ),
-    ) as {
-      managerAcceptance: typeof acceptance;
-      evidence: Record<string, boolean>;
-      publication: { allowed: boolean };
-      releaseBlockers: string[];
-    };
-    const releaseGate = evaluateReleaseGate(acceptance, {
-      corePackedConsumer: release.evidence.corePackedConsumer,
-      httpCorePackedConsumer: release.evidence.httpCorePackedConsumer,
-      releaseAuthentication: release.evidence.releaseAuthentication,
-    });
-    expect(release.managerAcceptance).toEqual(acceptance);
-    expect(release.evidence.managerAvailability).toBe(
-      releaseGate.managerAvailability,
+    expect(summary.matrixPassed).toBe(
+      Object.values(acceptance).every(({ status }) => status === 'passed'),
     );
-    expect(release.evidence.packedWizardMatrix).toBe(
-      releaseGate.packedWizardMatrix,
-    );
-    expect(release.publication.allowed).toBe(releaseGate.publicationAllowed);
-    expect(release.releaseBlockers).toEqual(releaseGate.blockers);
+    expect(summary.releaseEvidence).toBe(summary.matrixPassed);
+    expect(summary.publicationAllowed).toBe(summary.matrixPassed);
+    const outputPath = process.env.NEST_BASE_RELEASE_MANAGER_OUTPUT;
+    if (outputPath) writeFileSync(outputPath, JSON.stringify(acceptance));
   });
 });
