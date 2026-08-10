@@ -1,4 +1,4 @@
-import type { PackageManager } from './types.js';
+import { PACKAGE_MANAGERS, type PackageManager } from './types.js';
 
 export type ManagerAcceptanceStatus =
   'unavailable' | 'environment-blocked' | 'passed' | 'failed';
@@ -11,6 +11,20 @@ export interface ManagerAcceptanceEvidence {
 export interface ManagerAcceptanceSummary {
   matrixPassed: boolean;
   releaseEvidence: boolean;
+  publicationAllowed: boolean;
+  blockers: string[];
+}
+
+export interface ReleaseGateInput {
+  corePackedConsumer: boolean;
+  httpCorePackedConsumer: boolean;
+  releaseAuthentication: boolean;
+}
+
+export interface ReleaseGateSummary {
+  managerAvailability: boolean;
+  packedWizardMatrix: boolean;
+  releaseAuthentication: boolean;
   publicationAllowed: boolean;
   blockers: string[];
 }
@@ -33,23 +47,49 @@ export function classifyManagerAcceptance(input: {
 }
 
 export function evaluateManagerAcceptance(
-  evidence: Record<PackageManager, ManagerAcceptanceEvidence>,
+  evidence: Partial<Record<PackageManager, ManagerAcceptanceEvidence>>,
 ): ManagerAcceptanceSummary {
-  const entries = Object.entries(evidence) as [
-    PackageManager,
-    ManagerAcceptanceEvidence,
-  ][];
-  const blockers = entries
-    .filter(([, result]) => result.status !== 'passed')
-    .map(([manager, result]) =>
-      result.reason
-        ? `${manager}: ${result.reason}`
-        : `${manager}: ${result.status}`,
-    );
+  const blockers = PACKAGE_MANAGERS.flatMap((manager) => {
+    const result = evidence[manager];
+    if (!result) return [`${manager}: result record missing`];
+    if (result.status === 'passed') return [];
+    return [`${manager}: ${result.reason || result.status}`];
+  });
+  const passed = blockers.length === 0;
   return {
-    matrixPassed: entries.length > 0 && blockers.length === 0,
-    releaseEvidence: entries.length > 0 && blockers.length === 0,
-    publicationAllowed: entries.length > 0 && blockers.length === 0,
+    matrixPassed: passed,
+    releaseEvidence: passed,
+    publicationAllowed: passed,
+    blockers,
+  };
+}
+
+export function evaluateReleaseGate(
+  managerAcceptance: Partial<Record<PackageManager, ManagerAcceptanceEvidence>>,
+  evidence: ReleaseGateInput,
+): ReleaseGateSummary {
+  const managerSummary = evaluateManagerAcceptance(managerAcceptance);
+  const blockers = [...managerSummary.blockers];
+  if (!evidence.corePackedConsumer)
+    blockers.push('core packed consumer evidence incomplete');
+  if (!evidence.httpCorePackedConsumer)
+    blockers.push('http-core packed consumer evidence incomplete');
+  if (!evidence.releaseAuthentication)
+    blockers.push('release authentication incomplete');
+
+  const managerAvailability = managerSummary.publicationAllowed;
+  const packedWizardMatrix =
+    managerSummary.matrixPassed &&
+    evidence.corePackedConsumer &&
+    evidence.httpCorePackedConsumer;
+  const publicationAllowed =
+    packedWizardMatrix && evidence.releaseAuthentication;
+
+  return {
+    managerAvailability,
+    packedWizardMatrix,
+    releaseAuthentication: evidence.releaseAuthentication,
+    publicationAllowed,
     blockers,
   };
 }

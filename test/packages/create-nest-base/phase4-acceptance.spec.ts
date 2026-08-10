@@ -12,6 +12,7 @@ import {
 import {
   classifyManagerAcceptance,
   evaluateManagerAcceptance,
+  evaluateReleaseGate,
   type ManagerAcceptanceEvidence,
 } from '../../../packages/create-nest-base/manager-evidence';
 
@@ -114,6 +115,55 @@ describe('create-nest-base Phase 4 acceptance matrix', () => {
         yarn: { status: 'unavailable' },
       }).releaseEvidence,
     ).toBe(false);
+
+    const partial = evaluateManagerAcceptance({
+      bun: { status: 'passed' },
+    });
+    expect(partial.publicationAllowed).toBe(false);
+    expect(partial.blockers).toEqual([
+      'npm: result record missing',
+      'pnpm: result record missing',
+      'yarn: result record missing',
+    ]);
+
+    expect(
+      evaluateManagerAcceptance({
+        bun: { status: 'passed' },
+        npm: { status: 'passed' },
+        pnpm: { status: 'passed' },
+        yarn: { status: 'passed' },
+      }).publicationAllowed,
+    ).toBe(true);
+  });
+
+  it('derives publication from evaluated manager and release evidence', () => {
+    const managerAcceptance = {
+      bun: { status: 'passed' },
+      npm: { status: 'passed' },
+      pnpm: {
+        status: 'environment-blocked',
+        reason: 'node:sqlite unavailable',
+      },
+      yarn: { status: 'unavailable', reason: 'executable not found on PATH' },
+    } satisfies Record<PackageManager, ManagerAcceptanceEvidence>;
+
+    expect(
+      evaluateReleaseGate(managerAcceptance, {
+        corePackedConsumer: true,
+        httpCorePackedConsumer: true,
+        releaseAuthentication: false,
+      }),
+    ).toEqual({
+      managerAvailability: false,
+      packedWizardMatrix: false,
+      releaseAuthentication: false,
+      publicationAllowed: false,
+      blockers: [
+        'pnpm: node:sqlite unavailable',
+        'yarn: executable not found on PATH',
+        'release authentication incomplete',
+      ],
+    });
   });
 
   it('accepts every capability combination with explicit CI artifact inputs', () => {
@@ -160,6 +210,12 @@ describe('create-nest-base Phase 4 acceptance matrix', () => {
       evidence: Record<string, boolean>;
       managerAcceptance: Record<string, { status: string; reason?: string }>;
       releaseBlockers: string[];
+      evidenceSnapshot: {
+        generated: boolean;
+        staleSafe: boolean;
+        source: string;
+        note: string;
+      };
     };
 
     expect(release.publication.allowed).toBe(false);
@@ -181,7 +237,23 @@ describe('create-nest-base Phase 4 acceptance matrix', () => {
     expect(release.releaseBlockers).toEqual([
       'pnpm: node:sqlite unavailable',
       'yarn: executable not found on PATH',
+      'release authentication incomplete',
     ]);
+    const gate = evaluateReleaseGate(release.managerAcceptance, {
+      corePackedConsumer: release.evidence.corePackedConsumer,
+      httpCorePackedConsumer: release.evidence.httpCorePackedConsumer,
+      releaseAuthentication: release.evidence.releaseAuthentication,
+    });
+    expect(release.evidence.managerAvailability).toBe(gate.managerAvailability);
+    expect(release.evidence.packedWizardMatrix).toBe(gate.packedWizardMatrix);
+    expect(release.publication.allowed).toBe(gate.publicationAllowed);
+    expect(release.releaseBlockers).toEqual(gate.blockers);
+    expect(release.evidenceSnapshot).toEqual({
+      generated: true,
+      staleSafe: true,
+      source: 'evaluateReleaseGate',
+      note: 'Descriptive release evidence only; publication consumes fresh evaluated results.',
+    });
   });
 
   it('keeps published README release guidance inside the package boundary', () => {

@@ -1,5 +1,11 @@
 {
   "schemaVersion": 1,
+  "evidenceSnapshot": {
+    "generated": true,
+    "staleSafe": true,
+    "source": "evaluateReleaseGate",
+    "note": "Descriptive release evidence only; publication consumes fresh evaluated results."
+  },
   "packages": {
     "@nest-base/core": "0.1.0",
     "@nest-base/http-core": "0.1.0",
@@ -40,7 +46,8 @@
   },
   "releaseBlockers": [
     "pnpm: node:sqlite unavailable",
-    "yarn: executable not found on PATH"
+    "yarn: executable not found on PATH",
+    "release authentication incomplete"
   ],
   "evidence": {
     "corePackedConsumer": true,
