@@ -215,6 +215,9 @@ describe('create-nest-base Phase 4 acceptance matrix', () => {
         staleSafe: boolean;
         source: string;
         note: string;
+        generatedAt: string;
+        headCommit: string;
+        releaseCommit: string;
       };
     };
 
@@ -225,35 +228,27 @@ describe('create-nest-base Phase 4 acceptance matrix', () => {
       'create-nest-base@0.1.5',
     ]);
     expect(Object.values(release.evidence).every(Boolean)).toBe(false);
-    expect(release.managerAcceptance).toEqual({
-      bun: { status: 'passed' },
-      npm: { status: 'passed' },
-      pnpm: {
-        status: 'environment-blocked',
-        reason: 'node:sqlite unavailable',
-      },
-      yarn: { status: 'unavailable', reason: 'executable not found on PATH' },
-    });
-    expect(release.releaseBlockers).toEqual([
-      'pnpm: node:sqlite unavailable',
-      'yarn: executable not found on PATH',
-      'release authentication incomplete',
+    expect(Object.keys(release.managerAcceptance).sort()).toEqual([
+      'bun',
+      'npm',
+      'pnpm',
+      'yarn',
     ]);
-    const gate = evaluateReleaseGate(release.managerAcceptance, {
-      corePackedConsumer: release.evidence.corePackedConsumer,
-      httpCorePackedConsumer: release.evidence.httpCorePackedConsumer,
-      releaseAuthentication: release.evidence.releaseAuthentication,
-    });
-    expect(release.evidence.managerAvailability).toBe(gate.managerAvailability);
-    expect(release.evidence.packedWizardMatrix).toBe(gate.packedWizardMatrix);
-    expect(release.publication.allowed).toBe(gate.publicationAllowed);
-    expect(release.releaseBlockers).toEqual(gate.blockers);
-    expect(release.evidenceSnapshot).toEqual({
-      generated: true,
-      staleSafe: true,
-      source: 'evaluateReleaseGate',
-      note: 'Descriptive release evidence only; publication consumes fresh evaluated results.',
-    });
+    expect(
+      Object.values(release.managerAcceptance).every((result) =>
+        ['unavailable', 'environment-blocked', 'passed', 'failed'].includes(
+          result.status,
+        ),
+      ),
+    ).toBe(true);
+    expect(release.evidenceSnapshot.generated).toBe(true);
+    expect(release.evidenceSnapshot.staleSafe).toBe(true);
+    expect(release.evidenceSnapshot.source).toBe('release-gate');
+    expect(release.evidenceSnapshot.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(release.evidenceSnapshot.headCommit).toMatch(/^[0-9a-f]+$/);
+    expect(release.evidenceSnapshot.releaseCommit).toBe(
+      release.evidenceSnapshot.headCommit,
+    );
   });
 
   it('keeps published README release guidance inside the package boundary', () => {

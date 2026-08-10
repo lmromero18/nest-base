@@ -3,8 +3,11 @@
   "evidenceSnapshot": {
     "generated": true,
     "staleSafe": true,
-    "source": "evaluateReleaseGate",
-    "note": "Descriptive release evidence only; publication consumes fresh evaluated results."
+    "source": "release-gate",
+    "note": "Descriptive release evidence only; publication consumes fresh evaluated results.",
+    "generatedAt": "2026-08-10T14:55:06.738Z",
+    "headCommit": "08ea36ca502cfc0ff7682f5fbba9bcebd342059e",
+    "releaseCommit": "08ea36ca502cfc0ff7682f5fbba9bcebd342059e"
   },
   "packages": {
     "@nest-base/core": "0.1.0",
@@ -54,10 +57,11 @@
     "httpCorePackedConsumer": true,
     "managerAvailability": false,
     "packedWizardMatrix": false,
-    "releaseAuthentication": false
+    "releaseAuthentication": false,
+    "promotionAudit": true
   },
   "publication": {
     "allowed": false,
-    "rule": "Publication is prohibited until every evidence value is true and the release gate is rerun."
+    "rule": "Publication is prohibited until fresh release-gate evidence is generated for the exact release commit and every required flag is true."
   }
 }

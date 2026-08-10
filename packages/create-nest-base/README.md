@@ -57,3 +57,21 @@ is enabled only after the release evidence is bound and all packed gates pass;
 until then, choose `core-crud` only. Release order and the publication block are
 maintained by the repository release gate and are not required in the published
 package.
+
+## Release gate
+
+Publication must consume fresh evidence; the checked-in JSON is descriptive only.
+Set the requested release commit and explicit authentication identity, then run
+the gate as the command immediately before publishing:
+
+```sh
+NEST_BASE_RELEASE_COMMIT="$(git rev-parse HEAD)" \
+NEST_BASE_RELEASE_AUTHENTICATED=1 \
+NEST_BASE_RELEASE_AUTH_IDENTITY=registry-user \
+bun run release:gate && npm publish
+```
+
+The gate detects and executes npm, pnpm, Yarn, and Bun acceptance independently,
+runs the packed wizard and core consumer checks, and fails closed when pnpm or
+Yarn evidence is unavailable/failed or authentication is missing. Never publish
+from `docs/create-nest-base-release.json` alone.
