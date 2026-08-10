@@ -451,8 +451,7 @@ export function formatHelp(): string {
   return [
     'create-nest-base [--ci] --target <directory> [options]',
     '--package-manager <npm|pnpm|yarn|bun>  Required in CI; interactive defaults to bun.',
-    '--select <core-crud,logger>  Select capabilities (core-crud is mandatory).',
-    '--select <core-crud,http-core,logger>  HTTP Core is recommended interactively; core-only opts out.',
+    '--select <core-crud,http-core,logger>  Select capabilities; core-crud is mandatory and core-only opts out of recommended HTTP Core.',
     '--skip-install              Disable the final package-manager install.',
     '--dry-run                   Preview the normalized plan without writes.',
     '--yes                       Confirm a complete plan in CI.',

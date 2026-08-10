@@ -205,10 +205,21 @@ function runPackedHttpCoreCi(
       '--http-core-integrity',
       `sha512-${createHash('sha512').update(httpCoreBytes).digest('base64')}`,
       '--retry',
-      '--skip-install',
     ],
     workspace,
     { ...process.env, CI: '1' },
+  );
+}
+
+function verifyGeneratedCoreResolution(target: string) {
+  return run(
+    [
+      bunExecutable,
+      '-e',
+      "const resolved = await import.meta.resolve('@nest-base/core'); if (!resolved.includes('/node_modules/@nest-base/core/') && !resolved.includes('\\\\node_modules\\\\@nest-base\\\\core\\\\')) throw new Error(`repository fallback: ${resolved}`); const pkg = await import('@nest-base/core/package.json', { with: { type: 'json' } }); if (pkg.default?.version !== '0.1.0') throw new Error(`unexpected core version: ${pkg.default?.version}`);",
+    ],
+    target,
+    { ...process.env, NODE_PATH: '' },
   );
 }
 
@@ -293,6 +304,8 @@ describe('create-nest-base packed consumer', () => {
 
       expect(result.exitCode, output(result)).toBe(0);
       expect(output(result)).toContain('core-crud');
+      const resolution = verifyGeneratedCoreResolution(target);
+      expect(resolution.exitCode, output(resolution)).toBe(0);
       const manifest = JSON.parse(
         readFileSync(resolve(target, '.nest-base/manifest.json'), 'utf8'),
       ) as { packageManager: string; installArgs: string[] };
@@ -351,6 +364,8 @@ describe('create-nest-base packed consumer', () => {
 
       expect(result.exitCode, output(result)).toBe(0);
       expect(output(result)).toContain('http-core');
+      const resolution = verifyGeneratedCoreResolution(target);
+      expect(resolution.exitCode, output(resolution)).toBe(0);
       const packageJson = JSON.parse(
         readFileSync(resolve(target, 'package.json'), 'utf8'),
       ) as { nestBase: { capabilities: Array<{ id: string }> } };

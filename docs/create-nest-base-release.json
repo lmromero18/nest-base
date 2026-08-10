@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "packages": {
+    "@nest-base/core": "0.1.0",
+    "@nest-base/http-core": "0.1.0",
+    "create-nest-base": "0.1.5"
+  },
+  "sequence": [
+    "@nest-base/core@0.1.0",
+    "@nest-base/http-core@0.1.0 evidence",
+    "create-nest-base@0.1.5"
+  ],
+  "httpCoreDefault": {
+    "mode": "recommended",
+    "enabled": false,
+    "optOut": "select core-crud only",
+    "requires": [
+      "published registry metadata",
+      "canonical tarball identity and SHA-512",
+      "tarball audit",
+      "independent ESM/CJS consumer evidence",
+      "packed wizard acceptance"
+    ]
+  },
+  "evidence": {
+    "corePackedConsumer": true,
+    "httpCorePackedConsumer": true,
+    "managerAvailability": false,
+    "packedWizardMatrix": false,
+    "releaseAuthentication": false
+  },
+  "publication": {
+    "allowed": false,
+    "rule": "Publication is prohibited until every evidence value is true and the release gate is rerun."
+  }
+}
