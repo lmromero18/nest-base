@@ -34,8 +34,7 @@ describe('fresh release gate', () => {
     expect(
       evaluateFreshReleaseGate(passingInput(), {
         now: current,
-        headCommit: 'abc123',
-        releaseCommit: 'abc123',
+        actualHeadCommit: 'abc123',
       }),
     ).toMatchObject({ publicationAllowed: true, blockers: [] });
   });
@@ -45,8 +44,7 @@ describe('fresh release gate', () => {
       passingInput({ generatedAt: '2026-08-10T11:59:00.000Z' }),
       {
         now: current,
-        headCommit: 'abc123',
-        releaseCommit: 'abc123',
+        actualHeadCommit: 'abc123',
         maxAgeMs: 30_000,
       },
     );
@@ -58,13 +56,13 @@ describe('fresh release gate', () => {
   it('rejects evidence generated for a different HEAD or release commit', () => {
     const result = evaluateFreshReleaseGate(
       passingInput({ headCommit: 'old-head', releaseCommit: 'old-release' }),
-      { now: current, headCommit: 'abc123', releaseCommit: 'abc123' },
+      { now: current, actualHeadCommit: 'abc123' },
     );
 
     expect(result.publicationAllowed).toBe(false);
     expect(result.blockers).toEqual([
       'release evidence HEAD does not match current HEAD',
-      'release evidence release commit does not match requested release commit',
+      'release evidence release commit does not match current HEAD',
     ]);
   });
 
@@ -75,7 +73,7 @@ describe('fresh release gate', () => {
         packedWizardMatrix: false,
         releaseAuthentication: false,
       }),
-      { now: current, headCommit: 'abc123', releaseCommit: 'abc123' },
+      { now: current, actualHeadCommit: 'abc123' },
     );
 
     expect(result.publicationAllowed).toBe(false);
@@ -84,5 +82,42 @@ describe('fresh release gate', () => {
       'packed wizard matrix evidence incomplete',
       'release authentication incomplete',
     ]);
+  });
+
+  it('rejects an arbitrary old requested release commit against the actual HEAD', () => {
+    const result = evaluateFreshReleaseGate(
+      passingInput({ releaseCommit: 'old-release' }),
+      { now: current, actualHeadCommit: 'abc123' },
+    );
+
+    expect(result.publicationAllowed).toBe(false);
+    expect(result.blockers).toContain(
+      'release evidence release commit does not match current HEAD',
+    );
+  });
+
+  it('rejects future evidence instead of treating it as fresh', () => {
+    const result = evaluateFreshReleaseGate(
+      passingInput({ generatedAt: '2026-08-10T12:00:01.000Z' }),
+      { now: current, actualHeadCommit: 'abc123' },
+    );
+
+    expect(result.publicationAllowed).toBe(false);
+    expect(result.blockers).toContain('release evidence is from the future');
+  });
+
+  it('rejects evidence from a gate run that exceeded the freshness window', () => {
+    const result = evaluateFreshReleaseGate(passingInput(), {
+      now: current,
+      actualHeadCommit: 'abc123',
+      generationStartedAt: '2026-08-10T11:54:00.000Z',
+      generationEndedAt: current,
+      maxAgeMs: 5 * 60_000,
+    });
+
+    expect(result.publicationAllowed).toBe(false);
+    expect(result.blockers).toContain(
+      'release evidence generation exceeded freshness window',
+    );
   });
 });

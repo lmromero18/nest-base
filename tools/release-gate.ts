@@ -21,8 +21,9 @@ export interface FreshReleaseGateInput {
 
 export interface FreshReleaseGateContext {
   now: string;
-  headCommit: string;
-  releaseCommit: string;
+  actualHeadCommit: string;
+  generationStartedAt?: string;
+  generationEndedAt?: string;
   maxAgeMs?: number;
 }
 
@@ -38,16 +39,41 @@ export function evaluateFreshReleaseGate(
 
   if (!Number.isFinite(generatedTime) || !Number.isFinite(currentTime))
     blockers.push('release evidence timestamp is invalid');
-  else if (
-    generatedTime > currentTime ||
-    currentTime - generatedTime > maxAgeMs
-  )
+  else if (generatedTime > currentTime)
+    blockers.push('release evidence is from the future');
+  else if (currentTime - generatedTime > maxAgeMs)
     blockers.push('release evidence is stale');
-  if (input.headCommit !== context.headCommit)
+
+  const generationStart = context.generationStartedAt
+    ? Date.parse(context.generationStartedAt)
+    : undefined;
+  const generationEnd = context.generationEndedAt
+    ? Date.parse(context.generationEndedAt)
+    : undefined;
+  if (
+    generationStart !== undefined &&
+    generationEnd !== undefined &&
+    (!Number.isFinite(generationStart) || !Number.isFinite(generationEnd))
+  )
+    blockers.push('release generation timestamps are invalid');
+  else if (
+    generationStart !== undefined &&
+    generationEnd !== undefined &&
+    (generatedTime < generationStart || generatedTime > generationEnd)
+  )
+    blockers.push('release evidence timestamp is outside generation window');
+  else if (
+    generationStart !== undefined &&
+    generationEnd !== undefined &&
+    generationEnd - generationStart > maxAgeMs
+  )
+    blockers.push('release evidence generation exceeded freshness window');
+
+  if (input.headCommit !== context.actualHeadCommit)
     blockers.push('release evidence HEAD does not match current HEAD');
-  if (input.releaseCommit !== context.releaseCommit)
+  if (input.releaseCommit !== context.actualHeadCommit)
     blockers.push(
-      'release evidence release commit does not match requested release commit',
+      'release evidence release commit does not match current HEAD',
     );
   if (!input.corePackedConsumer)
     blockers.push('core packed consumer evidence incomplete');
@@ -101,7 +127,7 @@ function run(
   }
 }
 
-function currentHead(root: string): string {
+export function readCurrentHead(root: string): string {
   return execFileSync('git', ['rev-parse', 'HEAD'], {
     cwd: root,
     encoding: 'utf8',
@@ -130,6 +156,7 @@ export function runReleaseGate(
     throw new Error('NEST_BASE_RELEASE_COMMIT is required; refusing to guess.');
 
   const outputPath = resolve(root, '.release-manager-acceptance.json');
+  const generationStartedAt = new Date().toISOString();
   const packed = run(
     ['bun', 'test', 'test/packages/create-nest-base/packed-consumer.spec.ts'],
     root,
@@ -151,10 +178,12 @@ export function runReleaseGate(
     env,
   );
   const promotionAudit = run(['bun', 'run', 'audit:promotion'], root, env);
-  const generatedAt = options.now ?? new Date().toISOString();
+  const generatedAt = new Date().toISOString();
+  const generationEndedAt = generatedAt;
+  const actualHeadCommit = readCurrentHead(root);
   const input: FreshReleaseGateInput = {
     generatedAt,
-    headCommit: currentHead(root),
+    headCommit: actualHeadCommit,
     releaseCommit,
     managerAcceptance,
     corePackedConsumer: coreConsumer.exitCode === 0,
@@ -164,9 +193,10 @@ export function runReleaseGate(
     releaseAuthentication: authenticated(env),
   };
   const gate = evaluateFreshReleaseGate(input, {
-    now: generatedAt,
-    headCommit: input.headCommit,
-    releaseCommit,
+    now: options.now ?? generatedAt,
+    actualHeadCommit,
+    generationStartedAt,
+    generationEndedAt,
   });
   let previous: Record<string, unknown> = {};
   try {
@@ -184,15 +214,18 @@ export function runReleaseGate(
       source: 'release-gate',
       note: 'Descriptive release evidence only; publication consumes fresh evaluated results.',
       generatedAt,
+      generationStartedAt,
+      generationEndedAt,
       headCommit: input.headCommit,
       releaseCommit,
     },
     managerAcceptance,
     releaseBlockers: gate.blockers,
     evidence: {
-      ...(previous.evidence as Record<string, boolean> | undefined),
       managerAvailability: gate.managerAvailability,
       packedWizardMatrix: gate.packedWizardMatrix,
+      corePackedConsumer: input.corePackedConsumer,
+      httpCorePackedConsumer: input.httpCorePackedConsumer,
       promotionAudit: input.promotionAudit,
       releaseAuthentication: gate.releaseAuthentication,
     },
