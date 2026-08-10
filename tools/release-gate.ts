@@ -22,6 +22,7 @@ export interface FreshReleaseGateInput {
 export interface FreshReleaseGateContext {
   now: string;
   actualHeadCommit: string;
+  generationStartedHeadCommit?: string;
   generationStartedAt?: string;
   generationEndedAt?: string;
   maxAgeMs?: number;
@@ -71,6 +72,11 @@ export function evaluateFreshReleaseGate(
 
   if (input.headCommit !== context.actualHeadCommit)
     blockers.push('release evidence HEAD does not match current HEAD');
+  if (
+    context.generationStartedHeadCommit !== undefined &&
+    context.generationStartedHeadCommit !== context.actualHeadCommit
+  )
+    blockers.push('release evidence HEAD changed during generation');
   if (input.releaseCommit !== context.actualHeadCommit)
     blockers.push(
       'release evidence release commit does not match current HEAD',
@@ -145,7 +151,6 @@ export function runReleaseGate(
   options: {
     root?: string;
     releaseCommit?: string;
-    now?: string;
     snapshotPath?: string;
   } = {},
 ) {
@@ -156,6 +161,7 @@ export function runReleaseGate(
     throw new Error('NEST_BASE_RELEASE_COMMIT is required; refusing to guess.');
 
   const outputPath = resolve(root, '.release-manager-acceptance.json');
+  const generationStartedHeadCommit = readCurrentHead(root);
   const generationStartedAt = new Date().toISOString();
   const packed = run(
     ['bun', 'test', 'test/packages/create-nest-base/packed-consumer.spec.ts'],
@@ -178,12 +184,13 @@ export function runReleaseGate(
     env,
   );
   const promotionAudit = run(['bun', 'run', 'audit:promotion'], root, env);
+  const generationEndedAt = new Date().toISOString();
   const generatedAt = new Date().toISOString();
-  const generationEndedAt = generatedAt;
+  const evaluationNow = new Date().toISOString();
   const actualHeadCommit = readCurrentHead(root);
   const input: FreshReleaseGateInput = {
     generatedAt,
-    headCommit: actualHeadCommit,
+    headCommit: generationStartedHeadCommit,
     releaseCommit,
     managerAcceptance,
     corePackedConsumer: coreConsumer.exitCode === 0,
@@ -193,8 +200,9 @@ export function runReleaseGate(
     releaseAuthentication: authenticated(env),
   };
   const gate = evaluateFreshReleaseGate(input, {
-    now: options.now ?? generatedAt,
+    now: evaluationNow,
     actualHeadCommit,
+    generationStartedHeadCommit,
     generationStartedAt,
     generationEndedAt,
   });

@@ -66,6 +66,19 @@ describe('fresh release gate', () => {
     ]);
   });
 
+  it('rejects evidence when Git HEAD changes during generation', () => {
+    const result = evaluateFreshReleaseGate(passingInput(), {
+      now: '2026-08-10T12:00:01.000Z',
+      actualHeadCommit: 'new-head',
+      generationStartedHeadCommit: 'abc123',
+    });
+
+    expect(result.publicationAllowed).toBe(false);
+    expect(result.blockers).toContain(
+      'release evidence HEAD changed during generation',
+    );
+  });
+
   it('fails closed when a required evidence flag is missing or false', () => {
     const result = evaluateFreshReleaseGate(
       passingInput({
@@ -119,5 +132,33 @@ describe('fresh release gate', () => {
     expect(result.blockers).toContain(
       'release evidence generation exceeded freshness window',
     );
+  });
+
+  it('allows evidence exactly at the freshness boundary', () => {
+    const result = evaluateFreshReleaseGate(
+      passingInput({ generatedAt: '2026-08-10T11:59:30.000Z' }),
+      {
+        now: current,
+        actualHeadCommit: 'abc123',
+        maxAgeMs: 30_000,
+      },
+    );
+
+    expect(result.publicationAllowed).toBe(true);
+    expect(result.blockers).toEqual([]);
+  });
+
+  it('rejects evidence one millisecond beyond the freshness boundary', () => {
+    const result = evaluateFreshReleaseGate(
+      passingInput({ generatedAt: '2026-08-10T11:59:29.999Z' }),
+      {
+        now: current,
+        actualHeadCommit: 'abc123',
+        maxAgeMs: 30_000,
+      },
+    );
+
+    expect(result.publicationAllowed).toBe(false);
+    expect(result.blockers).toContain('release evidence is stale');
   });
 });
