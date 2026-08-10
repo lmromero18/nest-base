@@ -11,6 +11,7 @@ import {
   DEFAULT_CORE_TARBALL,
   DEFAULT_CORE_VERSION,
 } from './registry-constants.js';
+import { registerHttpCoreReleaseEvidenceForTest } from './registry.js';
 
 export type RegistryFetch = (
   input: RequestInfo | URL,
@@ -105,16 +106,8 @@ export async function createHttpCoreReleaseEvidenceWithDependencies(
     ...payload,
     evidenceDigest: digestEvidence(payload),
   } satisfies HttpCoreReleaseEvidence;
-  boundEvidence.add(evidence);
+  registerHttpCoreReleaseEvidenceForTest(evidence);
   return deepFreeze(evidence);
-}
-
-const boundEvidence = new WeakSet<object>();
-
-export function isBoundHttpCoreReleaseEvidence(
-  evidence: HttpCoreReleaseEvidence,
-): boolean {
-  return boundEvidence.has(evidence);
 }
 
 async function fetchCanonicalPackageRelease(

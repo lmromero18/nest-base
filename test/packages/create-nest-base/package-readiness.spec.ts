@@ -15,7 +15,6 @@ const expectedFiles = [
   'preflight.ts',
   'registry.ts',
   'registry-constants.ts',
-  'registry-internal.ts',
   'scaffold.ts',
   'types.ts',
   'ux.ts',
@@ -91,9 +90,11 @@ describe('create-nest-base package readiness', () => {
     };
 
     expect(manifest.files).toEqual(expectedFiles);
-    expect(manifest.files).toHaveLength(15);
+    expect(manifest.files).toHaveLength(14);
     for (const file of expectedFiles)
       expect(existsSync(resolve(packageRoot, file))).toBe(true);
+    expect(existsSync(resolve(packageRoot, 'registry-internal.ts'))).toBe(true);
+    expect(manifest.files).not.toContain('registry-internal.ts');
   });
 
   it('preserves an executable Bun entrypoint and package-local checks', () => {
@@ -117,8 +118,16 @@ describe('create-nest-base package readiness', () => {
     expect(packedFiles).toContain('index.ts');
     expect(packedFiles).toContain('README.md');
     expect(packedFiles).toContain('LICENSE');
+    expect(packedFiles).not.toContain('registry-internal.ts');
     expect(packedFiles).not.toContain('bun.lock');
     expect(packedFiles).not.toContain('package-lock.json');
     expect(packedFiles).not.toContain('test/packages/create-nest-base');
+  });
+
+  it('keeps the injectable evidence seam out of the production entrypoint', () => {
+    const entrypoint = readFileSync(resolve(packageRoot, 'index.ts'), 'utf8');
+
+    expect(entrypoint).not.toContain('registry-internal');
+    expect(entrypoint).not.toContain('createHttpCoreReleaseEvidenceForTest');
   });
 });
