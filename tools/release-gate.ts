@@ -163,16 +163,25 @@ function readGitValue(root: string, args: string[]): string {
   }).trim();
 }
 
+function readLatestHeadReflogEntry(root: string): string {
+  const reflogPath = resolve(
+    root,
+    readGitValue(root, ['rev-parse', '--git-path', 'logs/HEAD']),
+  );
+  const entries = readFileSync(reflogPath, 'utf8').trimEnd().split(/\r?\n/);
+  const latestEntry = entries.at(-1)?.trim();
+  if (!latestEntry) throw new Error('HEAD reflog entry is unavailable.');
+  return latestEntry;
+}
+
 export const gitAdapter: GitAdapter = {
   readState(root) {
     return {
       headCommit: readGitValue(root, ['rev-parse', 'HEAD']),
-      headVersionToken: readGitValue(root, [
-        'reflog',
-        '-1',
-        '--format=%H:%gd',
-        'HEAD',
-      ]),
+      headVersionToken: [
+        readGitValue(root, ['reflog', '-1', '--format=%H:%gD:%gs', 'HEAD']),
+        readLatestHeadReflogEntry(root),
+      ].join(':'),
     };
   },
 };

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import {
   evaluateFreshReleaseGate,
+  gitAdapter,
   runReleaseGate,
   type FreshReleaseGateInput,
 } from '../../tools/release-gate';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -169,6 +171,32 @@ describe('fresh release gate', () => {
       expect(result.blockers).toContain(
         'release evidence HEAD changed during generation',
       );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('real Git adapter changes its token after an A-to-B-to-A reset', () => {
+    const root = mkdtempSync(join(tmpdir(), 'release-gate-git-'));
+    const git = (args: string[]) =>
+      execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+
+    try {
+      git(['init', '-b', 'main']);
+      git(['config', 'user.email', 'release-gate@example.test']);
+      git(['config', 'user.name', 'Release Gate Test']);
+      writeFileSync(join(root, 'state.txt'), 'A\n');
+      git(['add', 'state.txt']);
+      git(['commit', '-m', 'state A']);
+      const stateA = gitAdapter.readState(root);
+
+      writeFileSync(join(root, 'state.txt'), 'B\n');
+      git(['commit', '-am', 'state B']);
+      git(['reset', '--hard', stateA.headCommit]);
+      const stateAfterAba = gitAdapter.readState(root);
+
+      expect(stateAfterAba.headCommit).toBe(stateA.headCommit);
+      expect(stateAfterAba.headVersionToken).not.toBe(stateA.headVersionToken);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
