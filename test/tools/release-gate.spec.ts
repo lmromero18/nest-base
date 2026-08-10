@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import {
   evaluateFreshReleaseGate,
+  runReleaseGate,
   type FreshReleaseGateInput,
 } from '../../tools/release-gate';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const current = '2026-08-10T12:00:00.000Z';
 const passingManagers = {
@@ -18,6 +22,7 @@ function passingInput(
   return {
     generatedAt: current,
     headCommit: 'abc123',
+    headVersionToken: 'reflog-1',
     releaseCommit: 'abc123',
     managerAcceptance: passingManagers,
     corePackedConsumer: true,
@@ -71,12 +76,102 @@ describe('fresh release gate', () => {
       now: '2026-08-10T12:00:01.000Z',
       actualHeadCommit: 'new-head',
       generationStartedHeadCommit: 'abc123',
+      generationStartedHeadVersionToken: 'reflog-1',
+      actualHeadVersionToken: 'reflog-2',
     });
 
     expect(result.publicationAllowed).toBe(false);
     expect(result.blockers).toContain(
       'release evidence HEAD changed during generation',
     );
+  });
+
+  it('accepts a normal orchestration run whose timestamps surround evidence generation', () => {
+    const root = mkdtempSync(join(tmpdir(), 'release-gate-'));
+    const snapshotPath = join(root, 'snapshot.json');
+    const state = { headCommit: 'abc123', headVersionToken: 'reflog-1' };
+    const timestamps = [
+      '2026-08-10T12:00:00.000Z',
+      '2026-08-10T12:00:01.000Z',
+      '2026-08-10T12:00:02.000Z',
+    ];
+    const previousAuth = process.env.NEST_BASE_RELEASE_AUTHENTICATED;
+    const previousIdentity = process.env.NEST_BASE_RELEASE_AUTH_IDENTITY;
+    process.env.NEST_BASE_RELEASE_AUTHENTICATED = '1';
+    process.env.NEST_BASE_RELEASE_AUTH_IDENTITY = 'orchestration-test';
+
+    try {
+      const result = runReleaseGate({
+        root,
+        releaseCommit: 'abc123',
+        snapshotPath,
+        gitAdapter: { readState: () => state },
+        clock: () => new Date(timestamps.shift() as string),
+        runCommand: (_command, _cwd, env) => {
+          if (env.NEST_BASE_RELEASE_MANAGER_OUTPUT)
+            writeFileSync(
+              env.NEST_BASE_RELEASE_MANAGER_OUTPUT,
+              JSON.stringify(passingManagers),
+            );
+          return { exitCode: 0, output: '' };
+        },
+      });
+
+      expect(result.publicationAllowed).toBe(true);
+      expect(result.input.generatedAt).toBe('2026-08-10T12:00:00.000Z');
+      expect(
+        (
+          JSON.parse(readFileSync(snapshotPath, 'utf8')) as {
+            evidenceSnapshot: { generationEndedAt: string };
+          }
+        ).evidenceSnapshot.generationEndedAt,
+      ).toBe('2026-08-10T12:00:01.000Z');
+    } finally {
+      if (previousAuth === undefined)
+        delete process.env.NEST_BASE_RELEASE_AUTHENTICATED;
+      else process.env.NEST_BASE_RELEASE_AUTHENTICATED = previousAuth;
+      if (previousIdentity === undefined)
+        delete process.env.NEST_BASE_RELEASE_AUTH_IDENTITY;
+      else process.env.NEST_BASE_RELEASE_AUTH_IDENTITY = previousIdentity;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an A-to-B-to-A HEAD mutation using the reflog version token', () => {
+    const root = mkdtempSync(join(tmpdir(), 'release-gate-'));
+    const snapshotPath = join(root, 'snapshot.json');
+    let state = { headCommit: 'abc123', headVersionToken: 'reflog-1' };
+    let evidenceCommands = 0;
+
+    try {
+      const result = runReleaseGate({
+        root,
+        releaseCommit: 'abc123',
+        snapshotPath,
+        gitAdapter: { readState: () => state },
+        clock: () => new Date(current),
+        runCommand: (_command, _cwd, env) => {
+          evidenceCommands += 1;
+          if (env.NEST_BASE_RELEASE_MANAGER_OUTPUT)
+            writeFileSync(
+              env.NEST_BASE_RELEASE_MANAGER_OUTPUT,
+              JSON.stringify(passingManagers),
+            );
+          if (evidenceCommands === 1)
+            state = { headCommit: 'def456', headVersionToken: 'reflog-2' };
+          if (evidenceCommands === 2)
+            state = { headCommit: 'abc123', headVersionToken: 'reflog-3' };
+          return { exitCode: 0, output: '' };
+        },
+      });
+
+      expect(result.publicationAllowed).toBe(false);
+      expect(result.blockers).toContain(
+        'release evidence HEAD changed during generation',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('fails closed when a required evidence flag is missing or false', () => {

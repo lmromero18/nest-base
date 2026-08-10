@@ -10,6 +10,7 @@ import type { PackageManager } from '../packages/create-nest-base/types';
 export interface FreshReleaseGateInput {
   generatedAt: string;
   headCommit: string;
+  headVersionToken: string;
   releaseCommit: string;
   managerAcceptance: Partial<Record<PackageManager, ManagerAcceptanceEvidence>>;
   corePackedConsumer: boolean;
@@ -23,6 +24,8 @@ export interface FreshReleaseGateContext {
   now: string;
   actualHeadCommit: string;
   generationStartedHeadCommit?: string;
+  generationStartedHeadVersionToken?: string;
+  actualHeadVersionToken?: string;
   generationStartedAt?: string;
   generationEndedAt?: string;
   maxAgeMs?: number;
@@ -72,11 +75,22 @@ export function evaluateFreshReleaseGate(
 
   if (input.headCommit !== context.actualHeadCommit)
     blockers.push('release evidence HEAD does not match current HEAD');
-  if (
-    context.generationStartedHeadCommit !== undefined &&
-    context.generationStartedHeadCommit !== context.actualHeadCommit
-  )
+  const headChangedDuringGeneration =
+    (context.generationStartedHeadCommit !== undefined &&
+      context.generationStartedHeadCommit !== context.actualHeadCommit) ||
+    (context.generationStartedHeadVersionToken !== undefined &&
+      context.actualHeadVersionToken !== undefined &&
+      context.generationStartedHeadVersionToken !==
+        context.actualHeadVersionToken);
+  if (headChangedDuringGeneration)
     blockers.push('release evidence HEAD changed during generation');
+  if (
+    context.generationStartedHeadVersionToken !== undefined &&
+    input.headVersionToken !== context.generationStartedHeadVersionToken
+  )
+    blockers.push(
+      'release evidence HEAD version does not match generation start',
+    );
   if (input.releaseCommit !== context.actualHeadCommit)
     blockers.push(
       'release evidence release commit does not match current HEAD',
@@ -105,7 +119,16 @@ export function evaluateFreshReleaseGate(
   };
 }
 
-type CommandResult = { exitCode: number; output: string };
+export type CommandResult = { exitCode: number; output: string };
+
+export interface GitState {
+  headCommit: string;
+  headVersionToken: string;
+}
+
+export interface GitAdapter {
+  readState(root: string): GitState;
+}
 
 function run(
   command: string[],
@@ -133,11 +156,29 @@ function run(
   }
 }
 
-export function readCurrentHead(root: string): string {
-  return execFileSync('git', ['rev-parse', 'HEAD'], {
+function readGitValue(root: string, args: string[]): string {
+  return execFileSync('git', args, {
     cwd: root,
     encoding: 'utf8',
   }).trim();
+}
+
+export const gitAdapter: GitAdapter = {
+  readState(root) {
+    return {
+      headCommit: readGitValue(root, ['rev-parse', 'HEAD']),
+      headVersionToken: readGitValue(root, [
+        'reflog',
+        '-1',
+        '--format=%H:%gd',
+        'HEAD',
+      ]),
+    };
+  },
+};
+
+export function readCurrentHead(root: string): string {
+  return gitAdapter.readState(root).headCommit;
 }
 
 function authenticated(env: NodeJS.ProcessEnv): boolean {
@@ -152,6 +193,13 @@ export function runReleaseGate(
     root?: string;
     releaseCommit?: string;
     snapshotPath?: string;
+    gitAdapter?: GitAdapter;
+    runCommand?: (
+      command: string[],
+      cwd: string,
+      env: NodeJS.ProcessEnv,
+    ) => CommandResult;
+    clock?: () => Date;
   } = {},
 ) {
   const root = resolve(options.root ?? process.cwd());
@@ -161,9 +209,13 @@ export function runReleaseGate(
     throw new Error('NEST_BASE_RELEASE_COMMIT is required; refusing to guess.');
 
   const outputPath = resolve(root, '.release-manager-acceptance.json');
-  const generationStartedHeadCommit = readCurrentHead(root);
-  const generationStartedAt = new Date().toISOString();
-  const packed = run(
+  const adapter = options.gitAdapter ?? gitAdapter;
+  const runCommand = options.runCommand ?? run;
+  const clock = options.clock ?? (() => new Date());
+  const generationStartedHead = adapter.readState(root);
+  const generationStartedAt = clock().toISOString();
+  const generatedAt = generationStartedAt;
+  const packed = runCommand(
     ['bun', 'test', 'test/packages/create-nest-base/packed-consumer.spec.ts'],
     root,
     { ...env, NEST_BASE_RELEASE_MANAGER_OUTPUT: outputPath },
@@ -177,20 +229,24 @@ export function runReleaseGate(
     // Missing output is represented by missing records and therefore fails closed.
   }
 
-  const coreConsumer = run(['bun', 'run', 'verify:consumer'], root, env);
-  const httpCoreConsumer = run(
+  const coreConsumer = runCommand(['bun', 'run', 'verify:consumer'], root, env);
+  const httpCoreConsumer = runCommand(
     ['bun', 'run', 'verify:http-core:consumer'],
     root,
     env,
   );
-  const promotionAudit = run(['bun', 'run', 'audit:promotion'], root, env);
-  const generationEndedAt = new Date().toISOString();
-  const generatedAt = new Date().toISOString();
-  const evaluationNow = new Date().toISOString();
-  const actualHeadCommit = readCurrentHead(root);
+  const promotionAudit = runCommand(
+    ['bun', 'run', 'audit:promotion'],
+    root,
+    env,
+  );
+  const generationEndedAt = clock().toISOString();
+  const evaluationNow = clock().toISOString();
+  const actualHead = adapter.readState(root);
   const input: FreshReleaseGateInput = {
     generatedAt,
-    headCommit: generationStartedHeadCommit,
+    headCommit: generationStartedHead.headCommit,
+    headVersionToken: generationStartedHead.headVersionToken,
     releaseCommit,
     managerAcceptance,
     corePackedConsumer: coreConsumer.exitCode === 0,
@@ -201,8 +257,10 @@ export function runReleaseGate(
   };
   const gate = evaluateFreshReleaseGate(input, {
     now: evaluationNow,
-    actualHeadCommit,
-    generationStartedHeadCommit,
+    actualHeadCommit: actualHead.headCommit,
+    generationStartedHeadCommit: generationStartedHead.headCommit,
+    generationStartedHeadVersionToken: generationStartedHead.headVersionToken,
+    actualHeadVersionToken: actualHead.headVersionToken,
     generationStartedAt,
     generationEndedAt,
   });
@@ -225,6 +283,7 @@ export function runReleaseGate(
       generationStartedAt,
       generationEndedAt,
       headCommit: input.headCommit,
+      headVersionToken: input.headVersionToken,
       releaseCommit,
     },
     managerAcceptance,
