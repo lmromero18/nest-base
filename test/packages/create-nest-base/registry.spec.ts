@@ -56,7 +56,8 @@ describe('create-nest-base capability registry', () => {
     expect(httpCore?.defaultIntegrity).toBeUndefined();
     expect(httpCore?.compatibility).toContain('NestJS 11');
     const evidence = await createReleaseEvidence();
-    expect(assertHttpCoreReleaseEvidence(evidence)).toEqual(evidence);
+    expect(Object.isFrozen(evidence)).toBe(true);
+    expect(evidence.evidenceDigest).toMatch(/^sha256-/);
 
     for (const entry of CAPABILITY_REGISTRY.slice(3)) {
       expect(entry.status).toBe('unavailable');
@@ -71,7 +72,6 @@ describe('create-nest-base capability registry', () => {
 
   it('blocks stale, tampered, and self-attested HTTP-core release evidence', async () => {
     const evidence = await createReleaseEvidence();
-    expect(bindHttpCoreReleaseEvidence(evidence)).toEqual(evidence);
     expect(() =>
       bindHttpCoreReleaseEvidence({ ...evidence, version: '0.1.1' }),
     ).toThrow('independently bound');

@@ -114,12 +114,6 @@ export async function createHttpCoreReleaseEvidence(
 
 const boundEvidence = new WeakSet<object>();
 
-export function registerHttpCoreReleaseEvidenceForTest(
-  evidence: HttpCoreReleaseEvidence,
-): void {
-  boundEvidence.add(evidence);
-}
-
 function isBoundHttpCoreReleaseEvidence(
   evidence: HttpCoreReleaseEvidence,
 ): boolean {

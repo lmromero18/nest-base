@@ -130,4 +130,22 @@ describe('create-nest-base package readiness', () => {
     expect(entrypoint).not.toContain('registry-internal');
     expect(entrypoint).not.toContain('createHttpCoreReleaseEvidenceForTest');
   });
+
+  it('does not expose evidence injection APIs from any published module', async () => {
+    const publishedModules = expectedFiles
+      .filter((file) => file.endsWith('.ts'))
+      .map((file) => resolve(packageRoot, file));
+    const forbiddenExport =
+      /(?:register|inject|test|mock|stub).*evidence|evidence.*(?:register|inject|test|mock|stub)/i;
+
+    for (const modulePath of publishedModules) {
+      const moduleExports = (await import(modulePath)) as Record<
+        string,
+        unknown
+      >;
+      expect(
+        Object.keys(moduleExports).filter((key) => forbiddenExport.test(key)),
+      ).toEqual([]);
+    }
+  });
 });

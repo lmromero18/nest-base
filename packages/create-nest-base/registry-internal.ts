@@ -11,7 +11,6 @@ import {
   DEFAULT_CORE_TARBALL,
   DEFAULT_CORE_VERSION,
 } from './registry-constants.js';
-import { registerHttpCoreReleaseEvidenceForTest } from './registry.js';
 
 export type RegistryFetch = (
   input: RequestInfo | URL,
@@ -106,7 +105,6 @@ export async function createHttpCoreReleaseEvidenceWithDependencies(
     ...payload,
     evidenceDigest: digestEvidence(payload),
   } satisfies HttpCoreReleaseEvidence;
-  registerHttpCoreReleaseEvidenceForTest(evidence);
   return deepFreeze(evidence);
 }
 
