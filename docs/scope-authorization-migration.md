@@ -204,3 +204,39 @@ No equivalen a una integración contra un servidor PostgreSQL ni prueban rollbac
 o locks reales. Esa integración debe añadirse al gate de adopción del consumidor.
 
 No se aceptan como columnas de scope las versiones, fechas automáticas de actualización/borrado ni columnas mapeadas como relaciones. TypeORM puede modificarlas implícitamente; deben usarse columnas raíz estables de autoridad.
+
+## Validación ejecutada — 2026-09-13
+
+Implementación: commit df7709b, branch feature/generic-scope-authorization.
+Estado: implementación disponible para revisión; gate global NO aprobado.
+
+| Verificación                             | Resultado                                                                        |
+| ---------------------------------------- | -------------------------------------------------------------------------------- |
+| Baseline, antes de cambios               | 381 tests: 379 PASS, 2 FAIL (timeouts de promoción serial/concurrente), 621,21 s |
+| Tests añadidos                           | 99: 64 scope, 25 metadata HTTP, 4 errores, 1 contexto, 5 SQL                     |
+| Suite final completa                     | 480 tests: 477 PASS, 3 FAIL, 1 error asíncrono adicional; 565,31 s               |
+| Selección scope/common/arquitectura/HTTP | 194 PASS, 0 FAIL                                                                 |
+| lint y quality:check                     | PASS (focused-check, lint, formato, typecheck y diff)                            |
+| build, build:core, build:http-core       | PASS                                                                             |
+| typecheck                                | PASS                                                                             |
+
+Fallos de la suite final, todos en test/packages/core/promotion-sequence.spec.ts:
+
+- Promoción serial: las dos promociones completaron, pero el test excedió 120 s
+  (121,223 s). El baseline ya fallaba por timeout.
+- Promoción concurrente: excedió 120 s; también fallaba en el baseline.
+  La terminación produjo además una aserción asíncrona con exit code 143.
+- Build directo concurrente con promoción: agotó los 30 s de espera del lock de
+  salida. La promoción terminó correctamente. Este fallo NO estaba en el
+  baseline. Se reprodujo aislado: 0 PASS, 1 FAIL, 40 filtrados, 60,96 s.
+
+La ejecución aislada confirmó PASS de los checkpoints de promoción, incluidos
+auditoría de core/http-core, tarballs y consumidores. Esto no reemplaza el fallo
+de coordinación ni convierte la suite completa en PASS. No se aumentaron
+timeouts ni se deshabilitaron pruebas para obtener un resultado verde.
+
+Warnings observados: normalización LF/CRLF de Git y logs de errores HTTP
+esperados por tests. Yarn no está disponible; Bun, npm y pnpm sí.
+No se ejecutó una integración con PostgreSQL real.
+El directorio preexistente packages/create-nest-base/.atl/ permanece intacto
+y excluido de los commits. No se publicó npm ni se hizo merge/push.
