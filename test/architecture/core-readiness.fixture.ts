@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 export const CORE_EXPORT_MANIFEST = {
   '.': [
     'BaseService',
+    'ScopeWhere',
+    'ScopeOperation',
+    'ScopeContext',
     'PaginatedResponse',
     'MutationOptions',
     'CrudOrderDirection',
@@ -20,7 +23,14 @@ export const CORE_EXPORT_MANIFEST = {
     'QueryStringParser',
     'DEFAULT_PARSER_OPTIONS',
   ],
-  './services': ['BaseService', 'PaginatedResponse', 'MutationOptions'],
+  './services': [
+    'BaseService',
+    'PaginatedResponse',
+    'MutationOptions',
+    'ScopeWhere',
+    'ScopeOperation',
+    'ScopeContext',
+  ],
   './query': [
     'QuerySchema',
     'QueryParserOptions',
@@ -39,6 +49,9 @@ export const CORE_EXPORT_MANIFEST = {
 
 export const CORE_CANONICAL_SOURCE_MAP = {
   BaseService: 'src/common/services/base.service.ts',
+  ScopeWhere: 'src/common/services/base.service.ts',
+  ScopeOperation: 'src/common/services/base.service.ts',
+  ScopeContext: 'src/common/services/base.service.ts',
   PaginatedResponse: 'src/common/application/crud.contracts.ts',
   MutationOptions: 'src/common/application/crud.contracts.ts',
   CrudOrderDirection: 'src/common/application/crud.contracts.ts',
@@ -58,6 +71,22 @@ export const CORE_CANONICAL_SOURCE_MAP = {
 
 export const CORE_READINESS_SCOPE = {
   acceptedChangedFiles: [
+    // Generic scope / HTTP metadata extension; exact reviewed file inventory.
+    'packages/http-core/src/index.ts',
+    'packages/http-core/src/controller/crud-controller.factory.ts',
+    'packages/http-core/src/errors/application-exception.filter.ts',
+    'packages/http-core/build.ts',
+    'packages/core/src/index.ts',
+    'packages/core/src/services/index.ts',
+    'packages/core/build.ts',
+    'test/common/services/base.service.scope.spec.ts',
+    'test/common/controller/crud-authorization.spec.ts',
+    'test/packages/http-core/application-exception.filter.spec.ts',
+    'test/common/context/correlation-context.spec.ts',
+    'test/common/services/scope-sql.spec.ts',
+    'docs/scope-authorization-migration.md',
+    'packages/core/README.md',
+    'packages/http-core/README.md',
     '.gitignore',
     '.prettierignore',
     'README.md',

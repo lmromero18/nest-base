@@ -38,9 +38,8 @@ describe('baseline-relative readiness classifier', () => {
     expect(report.byCategory['rollback-owned']).toEqual([
       'docs/framework-boundaries.md',
     ]);
-    expect(report.byCategory.accepted).toEqual([]);
+    expect(report.byCategory.accepted).toEqual(['packages/core/src/index.ts']);
     expect(report.byCategory.forbidden).toEqual([
-      'packages/core/src/index.ts',
       'tools/module-generator/cli.ts',
     ]);
     expect(report.byCategory.deferred).toEqual([]);
@@ -98,7 +97,7 @@ describe('baseline-relative readiness classifier', () => {
 
     expect(paths).toContain('bun.lock');
     expect(paths).toContain('test/architecture/core-readiness.spec.ts');
-    expect(paths).not.toContain('packages/core/src/index.ts');
+    expect(paths).toContain('packages/core/src/index.ts');
     expect(paths).toEqual([...new Set(paths)].sort());
   });
 });

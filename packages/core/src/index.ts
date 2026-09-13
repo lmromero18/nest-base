@@ -20,3 +20,9 @@ export {
   type QueryParserOptions,
   type QuerySchema,
 } from '../../../src/common/query/query-string-parser.js';
+
+export type {
+  ScopeWhere,
+  ScopeOperation,
+  ScopeContext,
+} from '../../../src/common/services/base.service.js';

@@ -1,4 +1,7 @@
 import {
+  And,
+  Equal,
+  FindOperator,
   DeepPartial,
   EntityMetadata,
   FindManyOptions,
@@ -26,10 +29,37 @@ export type {
   PaginatedResponse,
 } from '../application/crud.contracts';
 
+/** Equality constraints over root columns; arrays represent alternatives (OR).
+ * Operators and relation predicates are deliberately rejected as authority scopes.
+ */
+export type ScopeWhere<T> = Partial<{
+  [K in keyof T]: Extract<T[K], string | number | boolean | Date>;
+}>;
+export type ScopeOperation =
+  | 'find'
+  | 'findOne'
+  | 'findByPk'
+  | 'findOneBy'
+  | 'count'
+  | 'exists'
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'softDelete'
+  | 'restore';
+export interface ScopeContext {
+  readonly operation: ScopeOperation;
+  readonly manager?: MutationOptions['manager'];
+}
+type ResolvedScope<T> = readonly ScopeWhere<T>[] | undefined;
+type ReadOptions<T extends ObjectLiteral> = Omit<FindOneOptions<T>, 'where'> &
+  MutationOptions;
+
 type ListFindOptions<T extends ObjectLiteral> = Omit<
   FindManyOptions<T>,
   'where' | 'skip' | 'take' | 'order' | 'relations'
->;
+> &
+  MutationOptions;
 
 /**
  * Servicio CRUD genérico sobre un Repository de TypeORM.
@@ -66,6 +96,27 @@ export abstract class BaseService<T extends ObjectLiteral> {
     updated: string;
   } | null = { created: 'idCreado', updated: 'idActualizado' };
 
+  protected readonly requireScope: boolean = false;
+
+  /** Called per operation, never cached. Undefined preserves unscoped behavior. */
+  protected buildScope(
+    _context: ScopeContext,
+  ): ScopeWhere<T> | readonly ScopeWhere<T>[] | undefined {
+    void _context;
+    return undefined;
+  }
+
+  /** Trusted specialization can reject, normalize or inject values before enforcement.
+   * Controlled columns are enforced again afterwards; callers cannot bypass them.
+   */
+  protected prepareMutation(
+    data: DeepPartial<T>,
+    _context: ScopeContext,
+  ): DeepPartial<T> {
+    void _context;
+    return data;
+  }
+
   private parserInstance?: QueryStringParser;
 
   constructor(protected readonly repository: Repository<T>) {}
@@ -80,21 +131,28 @@ export abstract class BaseService<T extends ObjectLiteral> {
     query: Record<string, unknown> = {},
     options?: ListFindOptions<T>,
   ): Promise<PaginatedResponse<T>> {
+    const scope = this.resolveScope('find', options);
     const parsed = this.parseListQuery(query);
+    const { manager: _manager, ...readOptions } = options ?? {};
+    void _manager;
+    const repository = this.repo(options);
     const findOptions: FindManyOptions<T> = {
-      where: parsed.where as FindOptionsWhere<T> | FindOptionsWhere<T>[],
+      ...readOptions,
+      where: this.scopedWhere(
+        parsed.where as FindOptionsWhere<T> | FindOptionsWhere<T>[],
+        scope,
+      ),
       order: parsed.order as FindOptionsOrder<T>,
       relations: parsed.relations,
-      ...options,
     };
 
     if (!parsed.paginate) {
-      const data = await this.repository.find(findOptions);
+      const data = await repository.find(findOptions);
       return this.buildPaginatedResponse(data, data.length, 1, data.length);
     }
 
     const skip = (parsed.page - 1) * parsed.perPage;
-    const [data, total] = await this.repository.findAndCount({
+    const [data, total] = await repository.findAndCount({
       ...findOptions,
       skip,
       take: parsed.perPage,
@@ -115,12 +173,19 @@ export abstract class BaseService<T extends ObjectLiteral> {
   async findOne(
     id: unknown,
     filters: { with?: string } = {},
-    options?: Omit<FindOneOptions<T>, 'where' | 'relations'>,
+    options?: Omit<ReadOptions<T>, 'relations'>,
   ): Promise<T | null> {
     const relations = filters.with
       ? this.parseListQuery({ with: filters.with }).relations
       : undefined;
-    return this.findByPk(id, { ...(options ?? {}), relations });
+    const scope = this.resolveScope('findOne', options);
+    const where = this.buildPkWhere(id);
+    if (!where) return null;
+    return this.readScoped(
+      where as FindOptionsWhere<T>,
+      { ...options, relations },
+      scope,
+    );
   }
 
   /**
@@ -129,41 +194,55 @@ export abstract class BaseService<T extends ObjectLiteral> {
    */
   async findByPk(
     pkValue: unknown,
-    options?: Omit<FindOneOptions<T>, 'where'>,
+    options?: ReadOptions<T>,
   ): Promise<T | null> {
+    const scope = this.resolveScope('findByPk', options);
     const where = this.buildPkWhere(pkValue);
     if (!where) return null;
-    return this.repository.findOne({
-      where: where as FindOptionsWhere<T>,
-      ...(options ?? {}),
-    });
+    return this.readScoped(where as FindOptionsWhere<T>, options, scope);
   }
 
   /** Busca un registro por una columna específica. */
   async findOneBy<K extends keyof T>(
     column: K,
     value: T[K],
-    options?: Omit<FindOneOptions<T>, 'where'>,
+    options?: ReadOptions<T>,
   ): Promise<T | null> {
     const where = {
       [column as string]: value,
     } as unknown as FindOptionsWhere<T>;
-    return this.repository.findOne({ where, ...(options ?? {}) });
+    return this.readScoped(
+      where,
+      options,
+      this.resolveScope('findOneBy', options),
+    );
   }
 
   /** Total de registros que cumplen los filtros del query-string. */
-  async count(query: Record<string, unknown> = {}): Promise<number> {
+  async count(
+    query: Record<string, unknown> = {},
+    options?: MutationOptions,
+  ): Promise<number> {
     const parsed = this.parseListQuery(query);
-    return this.repository.count({
-      where: parsed.where as FindOptionsWhere<T> | FindOptionsWhere<T>[],
+    return this.repo(options).count({
+      where: this.scopedWhere(
+        parsed.where as FindOptionsWhere<T> | FindOptionsWhere<T>[],
+        this.resolveScope('count', options),
+      ),
     });
   }
 
   /** ¿Existe al menos un registro que cumpla los filtros? */
-  async exists(query: Record<string, unknown> = {}): Promise<boolean> {
+  async exists(
+    query: Record<string, unknown> = {},
+    options?: MutationOptions,
+  ): Promise<boolean> {
     const parsed = this.parseListQuery(query);
-    return this.repository.exists({
-      where: parsed.where as FindOptionsWhere<T> | FindOptionsWhere<T>[],
+    return this.repo(options).exists({
+      where: this.scopedWhere(
+        parsed.where as FindOptionsWhere<T> | FindOptionsWhere<T>[],
+        this.resolveScope('exists', options),
+      ),
     });
   }
 
@@ -175,11 +254,20 @@ export abstract class BaseService<T extends ObjectLiteral> {
    * puede fijarlas (evita sobrescrituras vía POST con id existente).
    */
   async create(data: DeepPartial<T>, options?: MutationOptions): Promise<T> {
+    const scope = this.resolveScope('create', options);
     const repo = this.repo(options);
-    const payload = this.sanitizeWritePayload(data);
+    const payload = this.mutationPayload(data, 'create', options, scope);
     this.stampAudit(payload, 'created');
+    this.enforceScopeValues(payload, scope, 'create');
     const entity = repo.create(payload as DeepPartial<T>);
-    return repo.save(entity);
+    if (!scope) return repo.save(entity);
+    // INSERT, never save/upsert: caller-supplied natural keys cannot update another row.
+    const result = await repo.insert(entity);
+    return Object.assign(
+      entity,
+      result.generatedMaps[0],
+      result.identifiers[0],
+    );
   }
 
   /**
@@ -191,11 +279,19 @@ export abstract class BaseService<T extends ObjectLiteral> {
     data: DeepPartial<T>,
     options?: MutationOptions,
   ): Promise<T | null> {
+    const scope = this.resolveScope('update', options);
     const repo = this.repo(options);
     const pkWhere = this.buildPkWhere(pk);
     if (!pkWhere) return null;
+    if (scope)
+      return this.updateScoped(
+        pkWhere as FindOptionsWhere<T>,
+        data,
+        options,
+        scope,
+      );
 
-    const payload = this.sanitizeWritePayload(data);
+    const payload = this.mutationPayload(data, 'update', options, scope);
     this.stampAudit(payload, 'updated');
 
     const entity = await repo.preload({
@@ -214,19 +310,21 @@ export abstract class BaseService<T extends ObjectLiteral> {
     data: DeepPartial<T>,
     options?: MutationOptions,
   ): Promise<T | null> {
-    const entity = await this.repo(options).findOne({
-      where: { [column as string]: value } as FindOptionsWhere<T>,
-    });
+    const scope = this.resolveScope('update', options);
+    const where = { [column as string]: value } as FindOptionsWhere<T>;
+    if (scope) return this.updateScoped(where, data, options, scope);
+    const entity = await this.repo(options).findOne({ where });
     if (!entity) return null;
     return this.updateByPk(entity, data, options);
   }
 
   /** Borrado físico por PK. Retorna false si no existía. */
   async removeByPk(pk: unknown, options?: MutationOptions): Promise<boolean> {
+    const scope = this.resolveScope('delete', options);
     const where = this.buildPkWhere(pk);
     if (!where) return false;
     const result = await this.repo(options).delete(
-      where as FindOptionsWhere<T>,
+      this.scopedWhere(where as FindOptionsWhere<T>, scope),
     );
     return (result.affected ?? 0) > 0;
   }
@@ -237,9 +335,15 @@ export abstract class BaseService<T extends ObjectLiteral> {
     value: T[K],
     options?: MutationOptions,
   ): Promise<boolean> {
-    const entity = await this.repo(options).findOne({
-      where: { [column as string]: value } as FindOptionsWhere<T>,
-    });
+    const scope = this.resolveScope('delete', options);
+    const where = { [column as string]: value } as FindOptionsWhere<T>;
+    if (scope) {
+      const result = await this.repo(options).delete(
+        this.scopedWhere(where, scope),
+      );
+      return (result.affected ?? 0) > 0;
+    }
+    const entity = await this.repo(options).findOne({ where });
     if (!entity) return false;
     return this.removeByPk(entity, options);
   }
@@ -252,22 +356,24 @@ export abstract class BaseService<T extends ObjectLiteral> {
     pk: unknown,
     options?: MutationOptions,
   ): Promise<boolean> {
+    const scope = this.resolveScope('softDelete', options);
     this.assertSoftDeleteSupport();
     const where = this.buildPkWhere(pk);
     if (!where) return false;
     const result = await this.repo(options).softDelete(
-      where as FindOptionsWhere<T>,
+      this.scopedWhere(where as FindOptionsWhere<T>, scope),
     );
     return (result.affected ?? 0) > 0;
   }
 
   /** Restaura un registro borrado lógicamente. Retorna false si no aplicó. */
   async restoreByPk(pk: unknown, options?: MutationOptions): Promise<boolean> {
+    const scope = this.resolveScope('restore', options);
     this.assertSoftDeleteSupport();
     const where = this.buildPkWhere(pk);
     if (!where) return false;
     const result = await this.repo(options).restore(
-      where as FindOptionsWhere<T>,
+      this.scopedWhere(where as FindOptionsWhere<T>, scope),
     );
     return (result.affected ?? 0) > 0;
   }
@@ -296,6 +402,210 @@ export abstract class BaseService<T extends ObjectLiteral> {
     return options?.manager
       ? options.manager.getRepository<T>(this.repository.target)
       : this.repository;
+  }
+
+  private resolveScope(
+    operation: ScopeOperation,
+    options?: MutationOptions,
+  ): ResolvedScope<T> {
+    const raw = this.buildScope({ operation, manager: options?.manager });
+    if (raw === undefined) {
+      if (this.requireScope)
+        throw new ApplicationException(
+          'validation',
+          'scope-required',
+          'Operation requires a scope',
+        );
+      return undefined;
+    }
+    const branches: readonly unknown[] = Array.isArray(raw) ? raw : [raw];
+    if (!branches.length || branches.length > 64) this.invalidScope();
+    return branches.map((branch) => {
+      if (
+        !branch ||
+        Object.getPrototypeOf(branch) !== Object.prototype ||
+        !Object.keys(branch).length
+      )
+        this.invalidScope();
+      const copy: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(
+        branch as Record<string, unknown>,
+      )) {
+        const column = this.repository.metadata.columns.find(
+          (c) => c.propertyName === key,
+        );
+        if (
+          !column ||
+          column.isVersion ||
+          column.isUpdateDate ||
+          column.isDeleteDate ||
+          column.relationMetadata ||
+          ['__proto__', 'prototype', 'constructor'].includes(key) ||
+          !(
+            typeof value === 'string' ||
+            typeof value === 'boolean' ||
+            (typeof value === 'number' && Number.isFinite(value)) ||
+            (value instanceof Date && Number.isFinite(value.getTime()))
+          )
+        )
+          this.invalidScope();
+        copy[key] = value instanceof Date ? new Date(value) : value;
+      }
+      return Object.freeze(copy) as ScopeWhere<T>;
+    });
+  }
+
+  private invalidScope(): never {
+    throw new ApplicationException(
+      'validation',
+      'invalid-scope',
+      'Scope must contain non-empty alternatives of root-column equalities',
+    );
+  }
+
+  private scopedWhere(
+    where: FindOptionsWhere<T> | FindOptionsWhere<T>[],
+    scope: ResolvedScope<T>,
+  ): FindOptionsWhere<T> | FindOptionsWhere<T>[] {
+    if (!scope) return where;
+    const caller = Array.isArray(where) ? where : [where];
+    if (!caller.length || caller.length * scope.length > 256)
+      this.invalidScope();
+    const result = caller.flatMap((branch) =>
+      scope.map((constraints) => {
+        const merged = { ...branch } as Record<string, unknown>;
+        for (const [key, value] of Object.entries(constraints)) {
+          const previous = merged[key];
+          // Preserve both predicates, including a conflicting caller equality.
+          merged[key] =
+            previous === undefined || previous === null
+              ? Equal(value)
+              : And(
+                  Equal(value),
+                  previous instanceof FindOperator ? previous : Equal(previous),
+                );
+        }
+        return merged as FindOptionsWhere<T>;
+      }),
+    );
+    return result.length === 1 ? result[0] : result;
+  }
+
+  private readScoped(
+    where: FindOptionsWhere<T>,
+    options: ReadOptions<T> | undefined,
+    scope: ResolvedScope<T>,
+  ): Promise<T | null> {
+    const { manager: _manager, ...readOptions } = options ?? {};
+    void _manager;
+    return this.repo(options).findOne({
+      ...readOptions,
+      where: this.scopedWhere(where, scope),
+    });
+  }
+
+  private mutationPayload(
+    data: DeepPartial<T>,
+    operation: 'create' | 'update',
+    options: MutationOptions | undefined,
+    scope: ResolvedScope<T>,
+  ): Record<string, unknown> {
+    const prepared = this.prepareMutation(
+      { ...data },
+      { operation, manager: options?.manager },
+    );
+    const payload = this.sanitizeWritePayload(prepared);
+    if (scope) {
+      for (const relation of this.repository.metadata.relations) {
+        if (
+          Object.prototype.hasOwnProperty.call(payload, relation.propertyName)
+        ) {
+          throw new ApplicationException(
+            'unsupported',
+            'scoped-relation-write',
+            'Scoped graph writes require an explicit application operation',
+          );
+        }
+      }
+      if (operation === 'update') {
+        for (const column of this.repository.metadata.primaryColumns)
+          delete payload[column.propertyName];
+      }
+    }
+    this.enforceScopeValues(payload, scope, operation);
+    return payload;
+  }
+
+  private enforceScopeValues(
+    payload: Record<string, unknown>,
+    scope: ResolvedScope<T>,
+    operation: 'create' | 'update',
+  ): void {
+    if (!scope) return;
+    const same = (a: unknown, b: unknown) =>
+      a instanceof Date && b instanceof Date
+        ? a.getTime() === b.getTime()
+        : Object.is(a, b);
+    const keys = new Set(scope.flatMap((branch) => Object.keys(branch)));
+    for (const key of keys) {
+      const first: unknown = (scope[0] as Record<string, unknown>)[key];
+      if (
+        scope.every(
+          (branch) =>
+            Object.hasOwn(branch, key) &&
+            same((branch as Record<string, unknown>)[key], first),
+        )
+      ) {
+        payload[key] = first instanceof Date ? new Date(first) : first;
+      } else if (operation === 'update' && Object.hasOwn(payload, key)) {
+        throw new ApplicationException(
+          'validation',
+          'scope-field-write',
+          'Cannot reassign a scoped column across alternatives',
+        );
+      }
+    }
+    if (
+      operation === 'create' &&
+      !scope.some((branch) =>
+        Object.entries(branch).every(([key, value]) =>
+          same(payload[key], value),
+        ),
+      )
+    ) {
+      throw new ApplicationException(
+        'validation',
+        'scope-create-mismatch',
+        'Creation must satisfy an explicit scope alternative',
+      );
+    }
+  }
+
+  private async updateScoped(
+    where: FindOptionsWhere<T>,
+    data: DeepPartial<T>,
+    options: MutationOptions | undefined,
+    scope: readonly ScopeWhere<T>[],
+  ): Promise<T | null> {
+    const repo = this.repo(options);
+    const payload = this.mutationPayload(data, 'update', options, scope);
+    this.stampAudit(payload, 'updated');
+    this.enforceScopeValues(payload, scope, 'update');
+    const scoped = this.scopedWhere(where, scope);
+    const current = await repo.findOne({ where: scoped });
+    if (!current) return null;
+    const pk = this.buildPkWhere(current);
+    if (!pk) return null;
+    // Scope remains in the write predicate: a pre-read is not authorization.
+    const guarded = this.scopedWhere({ ...where, ...pk }, scope);
+    const result = await repo.update(
+      guarded,
+      payload as Parameters<Repository<T>['update']>[1],
+    );
+    if (!result.affected) return null;
+    return repo.findOne({
+      where: this.scopedWhere(pk as FindOptionsWhere<T>, scope),
+    });
   }
 
   private buildQuerySchema(): QuerySchema {

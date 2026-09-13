@@ -51,6 +51,7 @@ function copySources(): void {
 
   for (const relative of [
     'src/index.ts',
+    'src/errors/application-exception.filter.ts',
     'src/controller/crud-controller.factory.ts',
     'src/responses/success.response.ts',
   ]) {

@@ -28,3 +28,7 @@ fails closed; no fixture package or repository-source import is accepted.
 
 See `docs/npm-package-platform.md` for migration checkpoints, rollback scope,
 and the optional-package roadmap.
+
+## Scope y metadata de autorización
+
+Extensiones opcionales y notas de migración: [guía del repositorio](https://github.com/lmromero18/nest-base/blob/main/docs/scope-authorization-migration.md).
