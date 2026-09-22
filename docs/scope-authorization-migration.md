@@ -433,3 +433,37 @@ metadatos de release. La suite funcional completa conserva la evidencia
 516/516 del cierre anterior; no se presenta como reejecutada para esta edición.
 La publicación efectiva y su integridad se registrarán una vez confirmadas
 por npm. El merge/publicación no incluye .env.test, .atl ni artefactos locales.
+
+## Publicación confirmada — 2026-09-22
+
+Merge local a main completado sin conflictos en 02c017d, con preparación
+de release en 29b6774. npm aceptó ambos tarballs y el registro público
+confirmó version 0.2.0 y dist-tag latest=0.2.0 para ambos paquetes:
+
+- https://www.npmjs.com/package/@nest-base/core/v/0.2.0
+- https://www.npmjs.com/package/@nest-base/http-core/v/0.2.0
+
+El peer publicado de http-core exige @nest-base/core >=0.2.0 <0.3.0.
+La integridad SHA-512 publicada coincide exactamente con los tarballs locales:
+
+- core: `sha512-D89VAIhrcx5xEDnwjMBHjn+m+RlNjVp6ysK37in6s+RjyM5GAQP/OYw0KAFtQHxredrfyHv8Qu2vgJswKG5KTg==`
+- http-core: `sha512-9Zn+dbi2RA3fHsA4Nj90y0powldgf5yoz25ty8kcvHcvT6L4DBU8476R03HYvosUqcnHv65xccBjND1Olb9kxQ==`
+
+audit:promotion PASS para 0.2.0: instalación frozen, builds, auditorías de
+artefactos/dependencias/tarballs y consumidores independientes ESM/CJS en
+Node/Bun con compilación de declaraciones. Ambos builds de paquetes pasaron
+también sobre el merge. Calidad (lint, formato y typecheck) y 29 pruebas
+focalizadas PASS; los tres builds y 516 tests completos conservan la evidencia
+previa, sin repetir la suite completa por la publicación.
+
+La primera autenticación npm falló con E401; se resolvió mediante login local
+y las confirmaciones del navegador exigidas por npm para cada publicación.
+La disponibilidad pública se comprobó después del procesamiento del registro.
+No se realizó una instalación adicional desde el registro: la verificación
+posterior compara versión, tags, peers e integridad; los consumidores se
+validaron con los mismos tarballs antes de publicar.
+
+No hubo push Git ni publicación de create-nest-base. .env y .env.test siguen
+ignorados y no versionados. Los tarballs permanecen bajo .git; .atl/
+preexistente sigue intacto y fuera de los commits. CI/Linux continúa sin
+evidencia de ejecución remota; no queda pendiente la publicación npm.
