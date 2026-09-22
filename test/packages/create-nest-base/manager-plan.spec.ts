@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'bun:test';
 import {
   normalizeCiInput,
@@ -13,7 +14,6 @@ import {
 } from '../../../packages/create-nest-base/ux';
 import {
   createPackageManagerAdapter,
-  resolveExecutableOnPath,
   type PackageManager,
 } from '../../../packages/create-nest-base/install';
 
@@ -142,20 +142,34 @@ describe('create-nest-base package manager adapter', () => {
     const root = mkdtempSync(join(tmpdir(), 'nest-base-empty-path-'));
     const first = join(root, 'first');
     const second = join(root, 'second');
-    const previousPath = process.env.PATH;
     try {
       mkdirSync(first);
       mkdirSync(second);
-      process.env.PATH = [first, second].join(delimiter);
-      expect(
-        resolveExecutableOnPath('__create_nest_base_missing_manager__'),
-      ).toBe(undefined);
-      expect(() => createPackageManagerAdapter('yarn')).toThrow(
-        'executable is unavailable',
+      const moduleUrl = pathToFileURL(
+        join(__dirname, '../../../packages/create-nest-base/install.ts'),
+      ).href;
+      const result = Bun.spawnSync(
+        [
+          process.execPath,
+          '-e',
+          `import { strict as assert } from 'node:assert';
+import { resolveExecutableOnPath, createPackageManagerAdapter } from ${JSON.stringify(moduleUrl)};
+assert.equal(resolveExecutableOnPath('__create_nest_base_missing_manager__'), undefined);
+assert.equal(resolveExecutableOnPath('yarn'), undefined);
+assert.throws(() => createPackageManagerAdapter('yarn'), /executable is unavailable/);`,
+        ],
+        {
+          cwd: root,
+          env: { ...process.env, PATH: [first, second].join(delimiter) },
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
       );
+      expect(
+        result.exitCode,
+        result.stdout.toString() + result.stderr.toString(),
+      ).toBe(0);
     } finally {
-      if (previousPath === undefined) delete process.env.PATH;
-      else process.env.PATH = previousPath;
       rmSync(root, { recursive: true, force: true });
     }
   });
