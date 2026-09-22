@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import {
   normalizeCiInput,
@@ -136,11 +139,24 @@ describe('create-nest-base package manager adapter', () => {
   });
 
   it('uses the production PATH resolver and rejects a missing manager without injection', () => {
-    expect(
-      resolveExecutableOnPath('__create_nest_base_missing_manager__'),
-    ).toBe(undefined);
-    expect(() => createPackageManagerAdapter('yarn')).toThrow(
-      'executable is unavailable',
-    );
+    const root = mkdtempSync(join(tmpdir(), 'nest-base-empty-path-'));
+    const first = join(root, 'first');
+    const second = join(root, 'second');
+    const previousPath = process.env.PATH;
+    try {
+      mkdirSync(first);
+      mkdirSync(second);
+      process.env.PATH = [first, second].join(delimiter);
+      expect(
+        resolveExecutableOnPath('__create_nest_base_missing_manager__'),
+      ).toBe(undefined);
+      expect(() => createPackageManagerAdapter('yarn')).toThrow(
+        'executable is unavailable',
+      );
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
