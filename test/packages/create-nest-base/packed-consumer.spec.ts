@@ -20,6 +20,16 @@ import {
 setDefaultTimeout(120_000);
 
 const packageRoot = resolve(__dirname, '../../../packages/create-nest-base');
+const coreVersion = (
+  JSON.parse(
+    readFileSync(resolve(packageRoot, '../core/package.json'), 'utf8'),
+  ) as { version: string }
+).version;
+const httpCoreVersion = (
+  JSON.parse(
+    readFileSync(resolve(packageRoot, '../http-core/package.json'), 'utf8'),
+  ) as { version: string }
+).version;
 const bunExecutable = process.execPath;
 const npmExecutable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
@@ -135,7 +145,7 @@ function withCleanConsumer(callback: (workspace: string) => void) {
 
   try {
     const archive = packInto(archiveDirectory);
-    const install = run(['bun', 'add', archive], workspace);
+    const install = run([bunExecutable, 'add', archive], workspace);
 
     expect(install.exitCode).toBe(0);
     callback(workspace);
@@ -168,7 +178,7 @@ function runPackedCi(
       'core-crud',
       '--yes',
       '--core-version',
-      '0.1.0',
+      coreVersion,
       '--core-source',
       coreArchive,
       '--core-integrity',
@@ -215,13 +225,13 @@ function runPackedHttpCoreCi(
       'core-crud,http-core',
       '--yes',
       '--core-version',
-      '0.1.0',
+      coreVersion,
       '--core-source',
       coreArchive,
       '--core-integrity',
       `sha512-${createHash('sha512').update(coreBytes).digest('base64')}`,
       '--http-core-version',
-      '0.1.0',
+      httpCoreVersion,
       '--http-core-source',
       httpCoreArchive,
       '--http-core-integrity',
@@ -238,7 +248,8 @@ function verifyGeneratedCoreResolution(target: string) {
     [
       bunExecutable,
       '-e',
-      "const resolved = await import.meta.resolve('@nest-base/core'); if (!resolved.includes('/node_modules/@nest-base/core/') && !resolved.includes('\\\\node_modules\\\\@nest-base\\\\core\\\\')) throw new Error(`repository fallback: ${resolved}`); const pkg = await import('@nest-base/core/package.json', { with: { type: 'json' } }); if (pkg.default?.version !== '0.1.0') throw new Error(`unexpected core version: ${pkg.default?.version}`);",
+      "const resolved = await import.meta.resolve('@nest-base/core'); if (!resolved.includes('/node_modules/@nest-base/core/') && !resolved.includes('\\\\node_modules\\\\@nest-base\\\\core\\\\')) throw new Error(`repository fallback: ${resolved}`); const pkg = await import('@nest-base/core/package.json', { with: { type: 'json' } }); if (pkg.default?.version !== process.argv[1]) throw new Error(`unexpected core version: ${pkg.default?.version}`);",
+      coreVersion,
     ],
     target,
     { ...process.env, NODE_PATH: '' },
@@ -312,7 +323,7 @@ describe('create-nest-base packed consumer', () => {
     try {
       const wizardArchive = packInto(wizardArchiveDirectory);
       const coreArchive = packCoreInto(coreArchiveDirectory);
-      const install = run(['bun', 'add', wizardArchive], workspace);
+      const install = run([bunExecutable, 'add', wizardArchive], workspace);
       expect(install.exitCode).toBe(0);
 
       const target = resolve(workspace, 'generated-app');
@@ -367,7 +378,7 @@ describe('create-nest-base packed consumer', () => {
       const wizardArchive = packInto(wizardArchiveDirectory);
       const coreArchive = packCoreInto(coreArchiveDirectory);
       const httpCoreArchive = packHttpCoreInto(httpCoreArchiveDirectory);
-      const install = run(['bun', 'add', wizardArchive], workspace);
+      const install = run([bunExecutable, 'add', wizardArchive], workspace);
       expect(install.exitCode, output(install)).toBe(0);
 
       const target = resolve(workspace, 'generated-http-core-app');

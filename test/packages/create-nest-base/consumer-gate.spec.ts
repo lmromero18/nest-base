@@ -124,6 +124,9 @@ describe('create-nest-base independent consumer gate', () => {
   it('compiles and runs a consumer against a real packed core artifact', async () => {
     const archiveDirectory = mkdtempSync(`${tmpdir()}/create-nest-base-core-`);
     const packageRoot = resolve(__dirname, '../../../packages/core');
+    const identity = JSON.parse(
+      readFileSync(resolve(packageRoot, 'package.json'), 'utf8'),
+    ) as { name: string; version: string };
     const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     try {
       rmSync(resolve(packageRoot, 'dist'), { recursive: true, force: true });
@@ -174,8 +177,8 @@ describe('create-nest-base independent consumer gate', () => {
           help: false,
           retry: false,
           target,
-          coreVersion: '0.1.0',
-          coreSource: '@nest-base/core@0.1.0',
+          coreVersion: identity.version,
+          coreSource: `${identity.name}@${identity.version}`,
           coreIntegrity: integrity,
           selections: ['core-crud'],
         },
@@ -188,7 +191,10 @@ describe('create-nest-base independent consumer gate', () => {
           },
           artifactLoaders: {
             registry: () => Promise.resolve({ bytes: artifactBytes }),
-            inspect: () => ({ package: '@nest-base/core', version: '0.1.0' }),
+            inspect: () => ({
+              package: identity.name,
+              version: identity.version,
+            }),
           },
           independentConsumerGate: createIndependentConsumerGate(),
           confirm: () => Promise.resolve(),
