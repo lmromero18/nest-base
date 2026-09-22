@@ -71,6 +71,14 @@ export const CORE_CANONICAL_SOURCE_MAP = {
 
 export const CORE_READINESS_SCOPE = {
   acceptedChangedFiles: [
+    'compose.postgres-test.yml',
+    'tools/postgres-test.ts',
+    'test/integration/scope-postgres.spec.ts',
+    'test/integration/scope-http.spec.ts',
+    'docs/postgres-tests.md',
+    'packages/http-core/audit.ts',
+    'packages/http-core/audit-tarball.ts',
+    'packages/http-core/verify-consumer.ts',
     // Generic scope / HTTP metadata extension; exact reviewed file inventory.
     'packages/http-core/src/index.ts',
     'packages/http-core/src/controller/crud-controller.factory.ts',

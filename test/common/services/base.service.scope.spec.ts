@@ -483,3 +483,80 @@ describe('required scope and manager coverage', () => {
     });
   }
 });
+
+describe('scope combinatorial boundaries', () => {
+  it('accepts exactly 64 alternatives without mutating scope or filters', async () => {
+    const scope = Array.from({ length: 64 }, () => ({ partition: 'a' }));
+    const original = structuredClone(scope);
+    const f = fixture();
+    const query = {
+      or: JSON.stringify([{ state: 'active' }, { state: 'pending' }]),
+    };
+    const before = structuredClone(query);
+    const service = new ScopedService(f.repo, scope);
+    expect((await service.find(query)).data.map((row) => row.id)).toEqual([
+      1, 3,
+    ]);
+    expect(scope).toEqual(original);
+    expect(query).toEqual(before);
+    expect(f.predicates[0]).toHaveLength(128);
+  });
+  it('rejects 65 alternatives before inspecting or expanding branches', async () => {
+    const poison = {
+      get partition(): string {
+        throw new Error('expanded too early');
+      },
+    };
+    const f = fixture();
+    const service = new ScopedService(
+      f.repo,
+      Array.from({ length: 65 }, () => poison),
+    );
+    await expect(service.find()).rejects.toThrow('Scope must contain');
+    expect(f.calls).toHaveLength(0);
+  });
+  it('accepts exactly 256 combinations', async () => {
+    const f = fixture();
+    const service = new ScopedService(
+      f.repo,
+      Array.from({ length: 64 }, () => ({ partition: 'a' })),
+    );
+    await service.find({
+      or: JSON.stringify(
+        Array.from({ length: 4 }, () => ({ state: 'active' })),
+      ),
+    });
+    expect(f.predicates[0]).toHaveLength(256);
+  });
+  it('rejects more than 256 combinations without repository calls', async () => {
+    const f = fixture();
+    const service = new ScopedService(
+      f.repo,
+      Array.from({ length: 64 }, () => ({ partition: 'a' })),
+    );
+    await expect(
+      service.find({
+        or: JSON.stringify(
+          Array.from({ length: 5 }, () => ({ state: 'active' })),
+        ),
+      }),
+    ).rejects.toThrow('Scope must contain');
+    expect(f.calls).toHaveLength(0);
+  });
+  it('preserves all four intersections of scope OR and caller OR', async () => {
+    const f = fixture();
+    const scope = [{ partition: 'a' }, { partition: 'b' }];
+    await new ScopedService(f.repo, scope).find({
+      or: JSON.stringify([{ state: 'active' }, { state: 'pending' }]),
+    });
+    expect(f.predicates[0]).toHaveLength(4);
+    expect(scope).toEqual([{ partition: 'a' }, { partition: 'b' }]);
+    expect(
+      f.rows
+        .filter((row) =>
+          matches(row as unknown as Record<string, unknown>, f.predicates[0]),
+        )
+        .map((row) => row.id),
+    ).toEqual([1, 2, 3]);
+  });
+});
