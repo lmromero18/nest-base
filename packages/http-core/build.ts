@@ -9,8 +9,12 @@ import {
 import { dirname, resolve } from 'node:path';
 import { getPublishedCoreTypesPath } from './verify-consumer.js';
 
-const packageRoot = resolve(import.meta.dir);
-const repositoryRoot = resolve(packageRoot, '../..');
+const packageRoot = resolve(
+  process.env.NEST_BASE_HTTP_CORE_PACKAGE_ROOT ?? import.meta.dir,
+);
+const repositoryRoot = resolve(
+  process.env.NEST_BASE_REPOSITORY_ROOT ?? resolve(import.meta.dir, '../..'),
+);
 const distRoot = resolve(packageRoot, 'dist');
 const temporaryRoot = resolve(packageRoot, '.build-work');
 const compiler = resolve(repositoryRoot, 'node_modules/typescript/bin/tsc');
@@ -96,7 +100,11 @@ function writeConfig(format: 'esm' | 'cjs' | 'types'): void {
       esModuleInterop: true,
       experimentalDecorators: true,
       emitDecoratorMetadata: true,
-      declaration: format === 'types',
+      declaration: format === 'types' || format === 'esm',
+      declarationDir:
+        format === 'cjs'
+          ? undefined
+          : resolve(temporaryRoot, 'artifact-dist/types'),
       emitDeclarationOnly: format === 'types',
       sourceMap: format !== 'types',
       noEmitOnError: true,
@@ -119,10 +127,8 @@ function main(): void {
     copySources();
     writeConfig('esm');
     writeConfig('cjs');
-    writeConfig('types');
     run(resolve(temporaryRoot, 'tsconfig.esm.json'));
     run(resolve(temporaryRoot, 'tsconfig.cjs.json'));
-    run(resolve(temporaryRoot, 'tsconfig.types.json'));
     writeFileSync(
       resolve(temporaryRoot, 'artifact-dist/cjs/package.json'),
       '{"type":"commonjs"}\n',

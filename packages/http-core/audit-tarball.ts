@@ -87,7 +87,9 @@ export function inspectHttpCorePackList(
 }
 
 function main(): void {
-  const root = resolve(import.meta.dir);
+  const root = resolve(
+    process.env.NEST_BASE_HTTP_CORE_PACKAGE_ROOT ?? import.meta.dir,
+  );
   const result = Bun.spawnSync(
     ['npm', 'pack', '--dry-run', '--json', '--ignore-scripts'],
     { cwd: root, stdout: 'pipe', stderr: 'pipe' },

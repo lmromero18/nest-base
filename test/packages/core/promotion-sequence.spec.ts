@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
   utimesSync,
@@ -14,6 +15,9 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'bun:test';
 import {
   acquireCoreOutputLock,
+  createCoreRunContext,
+  createCorePackageWorkspace,
+  withCoreOutputLock,
   getCoreOutputLockPath,
   releaseCoreOutputLock,
 } from '../../../tools/core-run-context';
@@ -188,6 +192,7 @@ describe.serial('promotion sequence', () => {
   });
 
   it('runs the complete promotion twice serially with clean output state', () => {
+    const previousArtifact = snapshotRepositoryArtifact();
     for (let run = 1; run <= 2; run += 1) {
       const output = execFileSync('bun', ['run', 'audit:promotion'], {
         cwd: repositoryRoot,
@@ -209,9 +214,11 @@ describe.serial('promotion sequence', () => {
       console.log(`serial promotion run ${run} passed`);
     }
     assertNoResidualPromotionState();
+    expect(snapshotRepositoryArtifact()).toBe(previousArtifact);
   }, 120_000);
 
   it('isolates concurrent complete promotions', async () => {
+    const previousArtifact = snapshotRepositoryArtifact();
     const runRoots = [1, 2].map(() =>
       temporaryDirectory('concurrent-promotion'),
     );
@@ -229,15 +236,21 @@ describe.serial('promotion sequence', () => {
     );
 
     try {
+      const exitCodes = await Promise.all(
+        runs.map((child) => waitForChildExit(child)),
+      );
       for (let index = 0; index < runs.length; index += 1) {
-        expect(await waitForChildExit(runs[index])).toBe(0);
+        expect(exitCodes[index]).toBe(0);
         expect(existsSync(runRoots[index])).toBe(false);
         expect(existsSync(resolve(runRoots[index], 'core-output.lock'))).toBe(
           false,
         );
       }
       assertNoResidualPromotionState();
+      expect(snapshotRepositoryArtifact()).toBe(previousArtifact);
     } finally {
+      for (const child of runs) child.kill();
+      await Promise.allSettled(runs.map((child) => child.exited));
       for (const runRoot of runRoots)
         rmSync(runRoot, { recursive: true, force: true });
     }
@@ -255,8 +268,18 @@ describe.serial('promotion sequence', () => {
       stderr: 'inherit',
     });
 
-    expect(await waitForChildExit(promotion)).toBe(0);
-    expect(await waitForChildExit(directBuild)).toBe(0);
+    try {
+      expect(
+        await Promise.all([
+          waitForChildExit(promotion),
+          waitForChildExit(directBuild),
+        ]),
+      ).toEqual([0, 0]);
+    } finally {
+      promotion.kill();
+      directBuild.kill();
+      await Promise.allSettled([promotion.exited, directBuild.exited]);
+    }
     const token = acquireCoreOutputLock();
     try {
       rmSync(resolve(packageRoot, 'dist'), { recursive: true, force: true });
@@ -1335,7 +1358,6 @@ function matchingIndependentConsumerRoots(): string[] {
 function assertNoResidualPromotionState(): void {
   const token = acquireCoreOutputLock();
   try {
-    expect(existsSync(resolve(packageRoot, 'dist'))).toBe(false);
     expect(existsSync(resolve(packageRoot, '.build-types'))).toBe(false);
     expect(existsSync(resolve(packageRoot, 'tsconfig.json'))).toBe(false);
     expect(readdirSync(packageRoot).some((name) => name.endsWith('.tgz'))).toBe(
@@ -1351,3 +1373,78 @@ function assertNoResidualPromotionState(): void {
   }
   expect(existsSync(getCoreOutputLockPath())).toBe(false);
 }
+
+it('captures a real process identity for timeout cleanup on this platform', () => {
+  const identity = captureProcessIdentity(process.pid);
+  expect(identity?.pid).toBe(process.pid);
+  expect(identity?.startTime).toBeTruthy();
+  expect(identity?.owner).toBeTruthy();
+}, 10000);
+
+function snapshotRepositoryArtifact(): string | null {
+  const path = resolve(packageRoot, 'dist/esm/index.js');
+  return existsSync(path) ? readFileSync(path, 'utf8') : null;
+}
+it('assigns distinct output locks to independent promotion workspaces', () => {
+  const first = createCoreRunContext(),
+    second = createCoreRunContext();
+  expect(first.lockPath).not.toBe(second.lockPath);
+  expect(first.lockPath).not.toBe(getCoreOutputLockPath());
+});
+it('an inherited token cannot bypass a different resource lock', () => {
+  const root = temporaryDirectory('lock-resource-binding');
+  const first = resolve(root, 'first'),
+    second = resolve(root, 'second');
+  const previous = process.env.NEST_BASE_CORE_LOCK_TOKEN;
+  const token = acquireCoreOutputLock({ lockPath: first });
+  try {
+    withCoreOutputLock(
+      () => {
+        expect(existsSync(resolve(second, 'owner.json'))).toBe(true);
+        expect(process.env.NEST_BASE_CORE_LOCK_TOKEN).not.toBe(token);
+      },
+      { lockPath: second },
+    );
+    expect(existsSync(second)).toBe(false);
+  } finally {
+    releaseCoreOutputLock(token, first);
+    if (previous) process.env.NEST_BASE_CORE_LOCK_TOKEN = previous;
+    else delete process.env.NEST_BASE_CORE_LOCK_TOKEN;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('copies only stable core inputs while another build owns transient output', () => {
+  const root = temporaryDirectory('workspace-snapshot');
+  const repository = resolve(root, 'repository');
+  const source = resolve(repository, 'packages/core');
+  const target = resolve(root, 'copy');
+  mkdirSync(resolve(repository, 'src/common'), { recursive: true });
+  mkdirSync(source, { recursive: true });
+  writeFileSync(resolve(source, 'package.json'), '{}');
+  for (const name of [
+    'dist',
+    '.build-work',
+    '.dist-backup',
+    '.build-types-123',
+    'node_modules',
+  ]) {
+    mkdirSync(resolve(source, name), { recursive: true });
+    writeFileSync(resolve(source, name, 'transient'), 'owned by another build');
+  }
+  try {
+    createCorePackageWorkspace(repository, target);
+    expect(existsSync(resolve(target, 'package.json'))).toBe(true);
+    for (const name of [
+      'dist',
+      '.build-work',
+      '.dist-backup',
+      '.build-types-123',
+      'node_modules',
+    ])
+      expect(existsSync(resolve(target, name))).toBe(false);
+    expect(existsSync(resolve(source, '.build-work/transient'))).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -10,8 +10,12 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const packageRoot = resolve(import.meta.dir);
-const repositoryRoot = resolve(packageRoot, '../..');
+const packageRoot = resolve(
+  process.env.NEST_BASE_HTTP_CORE_PACKAGE_ROOT ?? import.meta.dir,
+);
+const repositoryRoot = resolve(
+  process.env.NEST_BASE_REPOSITORY_ROOT ?? resolve(import.meta.dir, '../..'),
+);
 const root = join(
   tmpdir(),
   `nest-base-http-core-consumer-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -156,17 +160,31 @@ function main(): void {
   writeFileSync(
     join(consumer, 'src/index.ts'),
     `import 'reflect-metadata';
-import { CrudControllerFactory } from '@nest-base/http-core';
-import { BaseService } from '@nest-base/core';
+import { CrudControllerFactory, ApplicationExceptionFilter } from '@nest-base/http-core';
+import { BaseService, type ScopeWhere, type ScopeContext, type ScopeOperation } from '@nest-base/core';
 
-class ConsumerService extends BaseService<{ id: number }> {}
+class ConsumerService extends BaseService<{ id: number }> {
+  protected override readonly requireScope = true;
+  protected override buildScope(context: ScopeContext): ScopeWhere<{ id: number }> {
+    const operation: ScopeOperation = context.operation;
+    if (!operation) throw new Error('Missing operation');
+    return { id: 1 };
+  }
+}
+const key = Symbol('consumer-policy');
+const Controller = CrudControllerFactory<{ id: number }>({
+  routes: ['find'], strictAuthorizationCoverage: true,
+  authorization: { find: [{ key, value: { action: 'read' } }] },
+});
+const metadata = Reflect.getMetadata(key, Controller.prototype.find);
+if (metadata.action !== 'read' || typeof ApplicationExceptionFilter !== 'function') throw new Error('New HTTP core exports failed');
 if (typeof CrudControllerFactory !== 'function' || !(ConsumerService.prototype instanceof BaseService)) throw new Error('HTTP core consumer API contract failed');
 console.log('independent http-core consumer ESM API passed');
 `,
   );
   writeFileSync(
     join(consumer, 'cjs-check.cjs'),
-    `const http = require('@nest-base/http-core'); const core = require('@nest-base/core'); if (typeof http.CrudControllerFactory !== 'function' || typeof core.BaseService !== 'function') process.exit(1); console.log('independent http-core consumer CJS API passed');\n`,
+    `const http = require('@nest-base/http-core'); const core = require('@nest-base/core'); if (typeof http.CrudControllerFactory !== 'function' || typeof core.BaseService !== 'function' || typeof http.ApplicationExceptionFilter !== 'function') process.exit(1); const key = Symbol('policy'); const Controller = http.CrudControllerFactory({routes: ['find'], strictAuthorizationCoverage: true, authorization: {find: [{key, value: 'opaque'}]}}); if (Reflect.getMetadata(key, Controller.prototype.find) !== 'opaque') process.exit(1); console.log('independent http-core consumer CJS API passed');\n`,
   );
 
   try {

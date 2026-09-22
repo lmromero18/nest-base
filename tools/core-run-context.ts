@@ -45,7 +45,7 @@ export function createCoreRunContext(): CoreRunContext {
     join(tmpdir(), `nest-base-core-run-${randomUUID()}`);
   return {
     buildId: process.env.NEST_BASE_PROMOTION_BUILD_ID ?? randomUUID(),
-    lockPath: process.env.NEST_BASE_CORE_LOCK_PATH ?? defaultLockRoot,
+    lockPath: process.env.NEST_BASE_CORE_LOCK_PATH ?? `${runRoot}.lock`,
     packageRoot:
       process.env.NEST_BASE_CORE_PACKAGE_ROOT ?? join(runRoot, 'package'),
     runRoot,
@@ -76,7 +76,7 @@ export function createCorePackageWorkspace(
     recursive: true,
     filter: (path) => {
       const relative = path.slice(sourcePackageRoot.length);
-      return !/(^|[\\/])(dist|\.build-types(?:-[^\\/]*)?)([\\/]|$)/.test(
+      return !/(^|[\\/])(dist|\.dist-backup|\.build-work|node_modules|\.build-types(?:-[^\\/]*)?)([\\/]|$)/.test(
         relative,
       );
     },
@@ -128,7 +128,8 @@ export function withCoreOutputLock<T>(
   options: CoreLockOptions = {},
 ): T {
   const inheritedToken = process.env.NEST_BASE_CORE_LOCK_TOKEN;
-  if (inheritedToken && lockTokenMatches(inheritedToken)) return operation();
+  if (inheritedToken && lockTokenMatches(inheritedToken, options.lockPath))
+    return operation();
 
   const token = acquireLock(options);
   const previousToken = process.env.NEST_BASE_CORE_LOCK_TOKEN;
@@ -144,7 +145,8 @@ export function withCoreOutputLock<T>(
 
 export function acquireCoreOutputLock(options: CoreLockOptions = {}): string {
   const inheritedToken = process.env.NEST_BASE_CORE_LOCK_TOKEN;
-  if (inheritedToken && lockTokenMatches(inheritedToken)) return inheritedToken;
+  if (inheritedToken && lockTokenMatches(inheritedToken, options.lockPath))
+    return inheritedToken;
 
   const token = acquireLock(options);
   process.env.NEST_BASE_CORE_LOCK_TOKEN = token;
@@ -330,8 +332,8 @@ function ownsLock(token: string, lockPath?: string): boolean {
   }
 }
 
-function lockTokenMatches(token: string): boolean {
-  const lockRoot = getCoreOutputLockPath();
+function lockTokenMatches(token: string, lockPath?: string): boolean {
+  const lockRoot = getCoreOutputLockPath(lockPath);
   try {
     const owner = JSON.parse(
       readFileSync(resolve(lockRoot, 'owner.json'), 'utf8'),

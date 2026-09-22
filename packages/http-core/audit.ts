@@ -1,7 +1,9 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const root = resolve(import.meta.dir);
+const root = resolve(
+  process.env.NEST_BASE_HTTP_CORE_PACKAGE_ROOT ?? import.meta.dir,
+);
 const manifest = JSON.parse(
   readFileSync(resolve(root, 'package.json'), 'utf8'),
 ) as {
