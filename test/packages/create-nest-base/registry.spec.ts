@@ -1,19 +1,31 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'bun:test';
 import { resolveArtifact } from '../../../packages/create-nest-base/artifact-gate';
+import type { ArtifactRecord } from '../../../packages/create-nest-base/artifact-gate';
 import {
   CAPABILITY_REGISTRY,
   createRegistryArtifactLoader,
   inspectPackedArtifact,
   resolveCapabilities,
   resolveSource,
+  assertHttpCoreReleaseEvidence,
+  bindHttpCoreReleaseEvidence,
+  createHttpCoreReleaseEvidence,
 } from '../../../packages/create-nest-base/registry';
+import { createHttpCoreReleaseEvidenceForTest } from '../../../packages/create-nest-base/registry-test-support';
+import * as publicPackage from '../../../packages/create-nest-base/index';
+import type { HttpCoreReleaseEvidence } from '../../../packages/create-nest-base/types';
 
 describe('create-nest-base capability registry', () => {
-  it('keeps CRUD locked, exposes logger, and explains every future capability', () => {
+  it('does not expose the injectable evidence seam from the public package surface', () => {
+    expect('createHttpCoreReleaseEvidenceForTest' in publicPackage).toBe(false);
+  });
+
+  it('keeps CRUD locked, exposes logger, and explains every future capability', async () => {
     expect(CAPABILITY_REGISTRY.map((entry) => entry.id)).toEqual([
       'core-crud',
       'logger',
+      'http-core',
       'websocket',
       'events',
       'kafka',
@@ -28,7 +40,26 @@ describe('create-nest-base capability registry', () => {
     expect(core.package).toBe('@nest-base/core');
     expect(core.defaultVersion).toBe('0.1.0');
 
-    for (const entry of CAPABILITY_REGISTRY.slice(2)) {
+    const httpCore = CAPABILITY_REGISTRY.find(
+      (entry) => entry.id === 'http-core',
+    );
+    expect(httpCore?.status).toBe('available');
+    expect(httpCore?.requiredness).toBe('optional');
+    expect(httpCore?.recommended).toBe(true);
+    expect(httpCore?.defaultSelectedInteractive).toBe(true);
+    expect(httpCore?.package).toBe('@nest-base/http-core');
+    expect(httpCore?.defaultVersion).toBe('0.1.0');
+    expect(httpCore?.defaultSource).toEqual({
+      kind: 'registry',
+      spec: '@nest-base/http-core@0.1.0',
+    });
+    expect(httpCore?.defaultIntegrity).toBeUndefined();
+    expect(httpCore?.compatibility).toContain('NestJS 11');
+    const evidence = await createReleaseEvidence();
+    expect(Object.isFrozen(evidence)).toBe(true);
+    expect(evidence.evidenceDigest).toMatch(/^sha256-/);
+
+    for (const entry of CAPABILITY_REGISTRY.slice(3)) {
       expect(entry.status).toBe('unavailable');
       expect(entry.unavailableReason).toBeTruthy();
       expect(entry.compatibility).toBeTruthy();
@@ -37,6 +68,214 @@ describe('create-nest-base capability registry', () => {
       expect(entry.conflicts.length).toBeGreaterThan(0);
       expect(entry.manualSteps.length).toBeGreaterThan(0);
     }
+  });
+
+  it('blocks stale, tampered, and self-attested HTTP-core release evidence', async () => {
+    const evidence = await createReleaseEvidence();
+    expect(() =>
+      bindHttpCoreReleaseEvidence({ ...evidence, version: '0.1.1' }),
+    ).toThrow('independently bound');
+    expect(() =>
+      bindHttpCoreReleaseEvidence({
+        ...evidence,
+        consumer: {
+          ...evidence.consumer,
+          modes: [
+            'esm',
+          ] as unknown as HttpCoreReleaseEvidence['consumer']['modes'],
+        },
+      }),
+    ).toThrow('independently bound');
+    expect(() =>
+      bindHttpCoreReleaseEvidence({
+        ...evidence,
+        audit: { ...evidence.audit, artifactDigest: 'sha512-A' },
+      }),
+    ).toThrow('independently bound');
+    expect(() =>
+      bindHttpCoreReleaseEvidence({
+        ...evidence,
+        audit: {
+          ...evidence.audit,
+          tool: 'false' as unknown as HttpCoreReleaseEvidence['audit']['tool'],
+        },
+      }),
+    ).toThrow('independently bound');
+    expect(() =>
+      assertHttpCoreReleaseEvidence({
+        ...evidence,
+        evidenceDigest: evidence.evidenceDigest,
+      }),
+    ).toThrow('independently bound');
+  });
+
+  it('fails closed when registry metadata or bytes are stale or tampered', async () => {
+    const releaseBytes = await gzipTarball({
+      name: '@nest-base/http-core',
+      version: '0.1.0',
+    });
+    const coreArtifact = {
+      bytes: await fetchCanonicalCore(),
+    };
+    const makeFetcher =
+      (metadataIntegrity: string, bytes = releaseBytes) =>
+      (input: RequestInfo | URL) => {
+        const url = String(input);
+        const coreBytes = coreArtifact.bytes;
+        const coreIntegrity = `sha512-${createHash('sha512').update(coreBytes).digest('base64')}`;
+        if (url.includes('%40nest-base%2Fcore'))
+          return Promise.resolve(
+            Response.json({
+              versions: {
+                '0.1.0': {
+                  name: '@nest-base/core',
+                  version: '0.1.0',
+                  dist: {
+                    tarball:
+                      'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz',
+                    integrity: coreIntegrity,
+                  },
+                },
+              },
+            }),
+          );
+        if (url.endsWith('/core-0.1.0.tgz'))
+          return Promise.resolve(
+            new Response(new Blob([coreBytes as unknown as BlobPart])),
+          );
+        if (url.includes('%40nest-base%2Fhttp-core'))
+          return Promise.resolve(
+            Response.json({
+              versions: {
+                '0.1.0': {
+                  name: '@nest-base/http-core',
+                  version: '0.1.0',
+                  dist: {
+                    tarball:
+                      'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+                    integrity: metadataIntegrity,
+                  },
+                },
+              },
+            }),
+          );
+        return Promise.resolve(
+          new Response(new Blob([bytes as unknown as BlobPart])),
+        );
+      };
+    const integrity = `sha512-${createHash('sha512').update(releaseBytes).digest('base64')}`;
+    const gate = { verify: () => Promise.resolve() };
+    await expectRejected(
+      createHttpCoreReleaseEvidenceForTest({
+        registry: makeFetcher('sha512-A'),
+        coreArtifact,
+        independentConsumerGate: gate,
+      }),
+      'integrity',
+    );
+    await expectRejected(
+      createHttpCoreReleaseEvidenceForTest({
+        registry: makeFetcher(integrity, new Uint8Array([1, 2, 3])),
+        coreArtifact,
+        independentConsumerGate: gate,
+      }),
+      'digest',
+    );
+  });
+
+  it('rejects arbitrary same-identity core bytes', async () => {
+    const releaseBytes = await gzipTarball({
+      name: '@nest-base/http-core',
+      version: '0.1.0',
+    });
+    const canonicalCore = await fetchCanonicalCore();
+    const arbitraryCore = await gzipTarball({
+      name: '@nest-base/core',
+      version: '0.1.0',
+      forged: 'true',
+    });
+    const fetcher = (input: RequestInfo | URL) => {
+      const url = String(input);
+      const isCore =
+        url.includes('%40nest-base%2Fcore') || url.endsWith('/core-0.1.0.tgz');
+      const bytes = isCore ? canonicalCore : releaseBytes;
+      if (url.includes('%40nest-base%2F'))
+        return Promise.resolve(
+          Response.json({
+            versions: {
+              '0.1.0': {
+                name: isCore ? '@nest-base/core' : '@nest-base/http-core',
+                version: '0.1.0',
+                dist: {
+                  tarball: isCore
+                    ? 'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz'
+                    : 'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+                  integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}`,
+                },
+              },
+            },
+          }),
+        );
+      return Promise.resolve(
+        new Response(new Blob([bytes as unknown as BlobPart])),
+      );
+    };
+
+    await expectRejected(
+      createHttpCoreReleaseEvidenceForTest({
+        registry: fetcher,
+        coreArtifact: { bytes: arbitraryCore },
+        independentConsumerGate: { verify: () => Promise.resolve() },
+      }),
+      'integrity/provenance',
+    );
+  });
+
+  it('rejects matching forged core metadata with a non-canonical digest', async () => {
+    const releaseBytes = await gzipTarball({
+      name: '@nest-base/http-core',
+      version: '0.1.0',
+    });
+    const forgedCore = await gzipTarball({
+      name: '@nest-base/core',
+      version: '0.1.0',
+      forged: 'true',
+    });
+    const fetcher = (input: RequestInfo | URL) => {
+      const url = String(input);
+      const isCore =
+        url.includes('%40nest-base%2Fcore') || url.endsWith('/core-0.1.0.tgz');
+      const bytes = isCore ? forgedCore : releaseBytes;
+      if (url.includes('%40nest-base%2F'))
+        return Promise.resolve(
+          Response.json({
+            versions: {
+              '0.1.0': {
+                name: isCore ? '@nest-base/core' : '@nest-base/http-core',
+                version: '0.1.0',
+                dist: {
+                  tarball: isCore
+                    ? 'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz'
+                    : 'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+                  integrity: `sha512-${createHash('sha512').update(bytes).digest('base64')}`,
+                },
+              },
+            },
+          }),
+        );
+      return Promise.resolve(
+        new Response(new Blob([bytes as unknown as BlobPart])),
+      );
+    };
+
+    await expectRejected(
+      createHttpCoreReleaseEvidenceForTest({
+        registry: fetcher,
+        coreArtifact: { bytes: forgedCore },
+        independentConsumerGate: { verify: () => Promise.resolve() },
+      }),
+      'canonical',
+    );
   });
 
   it('fails closed for unknown and unavailable selections before resolution', () => {
@@ -53,6 +292,28 @@ describe('create-nest-base capability registry', () => {
       'core-crud',
       'logger',
     ]);
+  });
+
+  it('does not allow production evidence overrides to forge accepted evidence', async () => {
+    const fakeCore = {
+      bytes: await gzipTarball({
+        name: '@nest-base/core',
+        version: '0.1.0',
+      }),
+    };
+
+    await expectRejected(
+      createHttpCoreReleaseEvidence({
+        coreArtifact: fakeCore,
+        registry: (() => Promise.reject(new Error('forged registry'))) as never,
+        inspect: (() => ({
+          package: '@nest-base/core',
+          version: '0.1.0',
+        })) as never,
+        independentConsumerGate: { verify: () => Promise.resolve() } as never,
+      } as never),
+      'integrity',
+    );
   });
 
   it('normalizes registry, file, and URL sources deterministically', () => {
@@ -156,6 +417,85 @@ describe('create-nest-base capability registry', () => {
     expect(artifact?.redirected).toBe(true);
   });
 });
+
+async function createReleaseEvidence() {
+  const httpBytes = await gzipTarball({
+    name: '@nest-base/http-core',
+    version: '0.1.0',
+  });
+  const coreArtifact: ArtifactRecord = { bytes: await fetchCanonicalCore() };
+  const integrity = `sha512-${createHash('sha512').update(httpBytes).digest('base64')}`;
+  const fetcher = (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('%40nest-base%2Fcore'))
+      return Promise.resolve(
+        Response.json({
+          versions: {
+            '0.1.0': {
+              name: '@nest-base/core',
+              version: '0.1.0',
+              dist: {
+                tarball:
+                  'https://registry.npmjs.org/@nest-base/core/-/core-0.1.0.tgz',
+                integrity: `sha512-${createHash('sha512').update(coreArtifact.bytes).digest('base64')}`,
+              },
+            },
+          },
+        }),
+      );
+    if (url.endsWith('/core-0.1.0.tgz'))
+      return Promise.resolve(
+        new Response(new Blob([coreArtifact.bytes as unknown as BlobPart])),
+      );
+    if (url.includes('%40nest-base%2Fhttp-core'))
+      return Promise.resolve(
+        Response.json({
+          versions: {
+            '0.1.0': {
+              name: '@nest-base/http-core',
+              version: '0.1.0',
+              dist: {
+                tarball:
+                  'https://registry.npmjs.org/@nest-base/http-core/-/http-core-0.1.0.tgz',
+                integrity,
+              },
+            },
+          },
+        }),
+      );
+    return Promise.resolve(
+      new Response(new Blob([httpBytes as unknown as BlobPart])),
+    );
+  };
+  return createHttpCoreReleaseEvidenceForTest({
+    registry: fetcher,
+    coreArtifact,
+    independentConsumerGate: { verify: () => Promise.resolve() },
+  });
+}
+
+async function fetchCanonicalCore(): Promise<Uint8Array> {
+  const loader = createRegistryArtifactLoader(fetch);
+  const artifact = await loader('@nest-base/core@0.1.0');
+  if (!artifact) throw new Error('Canonical core artifact was unavailable.');
+  return artifact.bytes;
+}
+
+async function expectRejected(
+  promise: Promise<unknown>,
+  message: string,
+): Promise<void> {
+  await promise.then(
+    () => {
+      throw new Error('Expected rejection.');
+    },
+    (error: unknown) => {
+      expect(error instanceof Error ? error.message : String(error)).toContain(
+        message,
+      );
+    },
+  );
+}
 
 async function gzipTarball(
   packageJson: Record<string, string>,

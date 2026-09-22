@@ -9,6 +9,7 @@ import {
 } from '../../../packages/create-nest-base/cli';
 import { createMetadataFileSystem } from '../../../packages/create-nest-base/metadata';
 import type { CliPipelineDependencies } from '../../../packages/create-nest-base/cli';
+import { createPackageManagerAdapter } from '../../../packages/create-nest-base/install';
 
 const bytes = new TextEncoder().encode('packed-artifact');
 const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
@@ -20,6 +21,7 @@ const manifestPath = join(target, '.nest-base', 'manifest.json');
 
 const args = {
   ci: true,
+  packageManager: 'bun' as const,
   dryRun: false,
   yes: true,
   help: false,
@@ -27,6 +29,7 @@ const args = {
   coreVersion: '1.0.0',
   coreSource: '@nest-base/core@1.0.0',
   coreIntegrity: integrity as `sha512-${string}`,
+  selections: ['core-crud'],
 };
 
 describe('create-nest-base CLI pipeline', () => {
@@ -144,6 +147,33 @@ describe('create-nest-base CLI pipeline', () => {
     }
     expect(message).toContain(`Leftovers: ${packagePath}`);
     expect(files[packagePath]).toBe('changed by install');
+  });
+
+  it('compensates scaffold ownership when verification fails after creation', () => {
+    const calls: string[] = [];
+    return expect(
+      runCliPipeline(
+        args,
+        dependencies({
+          scaffold: () => {
+            calls.push('scaffold');
+            return Promise.resolve();
+          },
+          scaffoldFileSystem: {
+            readPackage: () => {
+              throw new Error('invalid scaffold');
+            },
+            isDirectory: () => true,
+          },
+          rollbackScaffold: (path) => {
+            calls.push(`rollback:${path}`);
+            return { leftovers: [] };
+          },
+          metadataFileSystem: undefined,
+        }),
+      ),
+    ).rejects.toThrow('Rollback completed');
+    expect(calls).toEqual(['scaffold', `rollback:${target}`]);
   });
 
   it('retries a preserved scaffold without invoking scaffold again', async () => {
@@ -448,6 +478,86 @@ describe('create-nest-base CLI pipeline', () => {
       'scaffold:@nestjs/cli@11.0.0 new demo --package-manager bun --strict --skip-install --skip-git',
       `install:${target}`,
     ]);
+  });
+
+  it('executes the selected manager and skips the final install when disabled', async () => {
+    const calls: string[] = [];
+    await runCli(
+      { ...args, packageManager: 'npm', skipInstall: true },
+      {
+        ...dependencies({
+          packageManagerAdapter: createPackageManagerAdapter('npm', {
+            platform: 'linux',
+            resolveExecutable: (command) => command,
+          }),
+          scaffold: (command) => {
+            calls.push(`${command.executable}:${command.args.join(' ')}`);
+            return Promise.resolve();
+          },
+          install: () => {
+            calls.push('install');
+            return Promise.resolve();
+          },
+          metadataFileSystem: undefined,
+        }),
+      },
+    );
+
+    expect(calls).toEqual([
+      'npx:@nestjs/cli@11.0.0 new demo --package-manager npm --strict --skip-install --skip-git',
+    ]);
+  });
+
+  it('scaffolds with an unavailable install manager when installation is disabled', async () => {
+    const calls: string[] = [];
+    await runCli(
+      { ...args, packageManager: 'npm', skipInstall: true },
+      {
+        ...dependencies({
+          packageManagerAdapter: createPackageManagerAdapter('npm', {
+            platform: 'linux',
+            resolveExecutable: (command) =>
+              command === 'npx' ? command : undefined,
+          }),
+          scaffold: (command) => {
+            calls.push(`${command.executable}:${command.args.join(' ')}`);
+            return Promise.resolve();
+          },
+          install: () => {
+            calls.push('install');
+            return Promise.resolve();
+          },
+          metadataFileSystem: undefined,
+        }),
+      },
+    );
+
+    expect(calls).toEqual([
+      'npx:@nestjs/cli@11.0.0 new demo --package-manager npm --strict --skip-install --skip-git',
+    ]);
+  });
+
+  it('fails clearly when installation is enabled and the install manager is unavailable', async () => {
+    let message = 'pipeline unexpectedly succeeded';
+    try {
+      await runCli(
+        { ...args, packageManager: 'npm' },
+        {
+          ...dependencies({
+            packageManagerAdapter: createPackageManagerAdapter('npm', {
+              platform: 'linux',
+              resolveExecutable: (command) =>
+                command === 'npx' ? command : undefined,
+            }),
+            metadataFileSystem: undefined,
+          }),
+        },
+      );
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain('npm executable is unavailable.');
   });
 
   it('allows an accepted non-CI confirmation and performs no writes when cancelled', async () => {

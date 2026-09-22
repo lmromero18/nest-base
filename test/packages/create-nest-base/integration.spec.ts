@@ -97,6 +97,7 @@ function setup() {
 function args(target: string, dryRun = false) {
   return {
     ci: true,
+    packageManager: 'bun',
     dryRun,
     yes: true,
     help: false,
@@ -104,6 +105,7 @@ function args(target: string, dryRun = false) {
     coreVersion: '1.0.0',
     coreSource: '@nest-base/core@1.0.0',
     coreIntegrity: integrity,
+    selections: ['core-crud'],
   } as const;
 }
 
@@ -119,13 +121,30 @@ describe('create-nest-base temporary-root acceptance coverage', () => {
       target: 'C:\\demo',
       coreVersion: '1.0.0',
       coreIntegrity: integrity,
+      selections: ['core-crud', 'http-core'],
+      httpCoreVersion: '0.1.0',
+      httpCoreSource: {
+        kind: 'registry',
+        spec: '@nest-base/http-core@0.1.0',
+      },
+      httpCoreIntegrity:
+        'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
     });
     const ci = normalizeCiInput({
       ci: true,
+      packageManager: 'bun',
       target: 'C:\\demo',
       coreVersion: '1.0.0',
       coreSource: { kind: 'registry', spec: '@nest-base/core@1.0.0' },
       coreIntegrity: integrity,
+      selections: ['core-crud', 'http-core'],
+      httpCoreVersion: '0.1.0',
+      httpCoreSource: {
+        kind: 'registry',
+        spec: '@nest-base/http-core@0.1.0',
+      },
+      httpCoreIntegrity:
+        'sha512-VW+lMO5AGp2EmVZh2P97cQtfGgmrRg180INPaY1ayTLAyRtHLS07U+xCSLJ9jw1SBy2C6D+2W6ZkWMaDJxoVBg==',
     });
     expect(serializePlan(interactive)).toBe(serializePlan(ci));
     expect(buildInteractiveCards().map((card) => card.id)).toContain(

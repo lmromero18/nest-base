@@ -39,3 +39,7 @@ export class PersonaController extends CrudControllerFactory<Persona>({
 The factory preserves the existing route defaults and validation behavior:
 `find`, `findOne`, `create`, `update`, and `softDelete` are enabled by default;
 `hardDelete` and `restore` require explicit route configuration.
+
+## Scope y metadata de autorización
+
+Extensiones opcionales y notas de migración: [guía del repositorio](https://github.com/lmromero18/nest-base/blob/main/docs/scope-authorization-migration.md).

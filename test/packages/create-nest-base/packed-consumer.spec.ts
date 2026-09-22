@@ -11,6 +11,11 @@ import {
 import { tmpdir } from 'node:os';
 import { resolve, sep } from 'node:path';
 import { describe, expect, it, setDefaultTimeout } from 'bun:test';
+import {
+  classifyManagerAcceptance,
+  evaluateManagerAcceptance,
+  type ManagerAcceptanceEvidence,
+} from '../../../packages/create-nest-base/manager-evidence';
 
 setDefaultTimeout(120_000);
 
@@ -78,6 +83,34 @@ function packCoreInto(directory: string): string {
   return resolve(directory, archive);
 }
 
+function packHttpCoreInto(directory: string): string {
+  const httpCoreRoot = resolve(packageRoot, '../http-core');
+  rmSync(resolve(httpCoreRoot, 'dist'), { recursive: true, force: true });
+  rmSync(resolve(httpCoreRoot, '.build-work'), {
+    recursive: true,
+    force: true,
+  });
+  const build = run([bunExecutable, 'build.ts'], httpCoreRoot);
+  expect(build.exitCode, output(build)).toBe(0);
+  const result = run(
+    [
+      npmExecutable,
+      'pack',
+      '--ignore-scripts',
+      '--json',
+      '--pack-destination',
+      directory,
+    ],
+    httpCoreRoot,
+  );
+  expect(result.exitCode, output(result)).toBe(0);
+  const report = JSON.parse(result.stdout.toString()) as PackReport[];
+  const archive = report[0]?.filename;
+  expect(archive).toMatch(/\.tgz$/);
+  if (!archive) throw new Error('HTTP-core archive was not produced.');
+  return resolve(directory, archive);
+}
+
 function createConsumer(): string {
   return mkdtempSync(resolve(tmpdir(), 'create-nest-base-consumer-'));
 }
@@ -112,7 +145,12 @@ function withCleanConsumer(callback: (workspace: string) => void) {
   }
 }
 
-function runPackedCi(workspace: string, target: string, coreArchive: string) {
+function runPackedCi(
+  workspace: string,
+  target: string,
+  coreArchive: string,
+  packageManager: 'bun' | 'npm' | 'pnpm' | 'yarn',
+) {
   const coreBytes = new Uint8Array(readFileSync(coreArchive));
   const integrity = `sha512-${createHash('sha512').update(coreBytes).digest('base64')}`;
   return run(
@@ -122,8 +160,12 @@ function runPackedCi(workspace: string, target: string, coreArchive: string) {
       '--bun',
       'create-nest-base',
       '--ci',
+      '--package-manager',
+      packageManager,
       '--target',
       target,
+      '--select',
+      'core-crud',
       '--yes',
       '--core-version',
       '0.1.0',
@@ -135,6 +177,71 @@ function runPackedCi(workspace: string, target: string, coreArchive: string) {
     ],
     workspace,
     { ...process.env, CI: '1' },
+  );
+}
+
+function resolveAvailableManager(
+  packageManager: 'bun' | 'npm' | 'pnpm' | 'yarn',
+): string | undefined {
+  return (
+    Bun.which(
+      packageManager === 'npm' && process.platform === 'win32'
+        ? 'npm.cmd'
+        : packageManager,
+    ) ?? undefined
+  );
+}
+
+function runPackedHttpCoreCi(
+  workspace: string,
+  target: string,
+  coreArchive: string,
+  httpCoreArchive: string,
+) {
+  const coreBytes = new Uint8Array(readFileSync(coreArchive));
+  const httpCoreBytes = new Uint8Array(readFileSync(httpCoreArchive));
+  return run(
+    [
+      bunExecutable,
+      'x',
+      '--bun',
+      'create-nest-base',
+      '--ci',
+      '--package-manager',
+      'bun',
+      '--target',
+      target,
+      '--select',
+      'core-crud,http-core',
+      '--yes',
+      '--core-version',
+      '0.1.0',
+      '--core-source',
+      coreArchive,
+      '--core-integrity',
+      `sha512-${createHash('sha512').update(coreBytes).digest('base64')}`,
+      '--http-core-version',
+      '0.1.0',
+      '--http-core-source',
+      httpCoreArchive,
+      '--http-core-integrity',
+      `sha512-${createHash('sha512').update(httpCoreBytes).digest('base64')}`,
+      '--retry',
+    ],
+    workspace,
+    { ...process.env, CI: '1' },
+  );
+}
+
+function verifyGeneratedCoreResolution(target: string) {
+  return run(
+    [
+      bunExecutable,
+      '-e',
+      "const resolved = await import.meta.resolve('@nest-base/core'); if (!resolved.includes('/node_modules/@nest-base/core/') && !resolved.includes('\\\\node_modules\\\\@nest-base\\\\core\\\\')) throw new Error(`repository fallback: ${resolved}`); const pkg = await import('@nest-base/core/package.json', { with: { type: 'json' } }); if (pkg.default?.version !== '0.1.0') throw new Error(`unexpected core version: ${pkg.default?.version}`);",
+    ],
+    target,
+    { ...process.env, NODE_PATH: '' },
   );
 }
 
@@ -215,14 +322,201 @@ describe('create-nest-base packed consumer', () => {
         resolve(target, 'package.json'),
         JSON.stringify({ name: 'generated-app' }),
       );
-      const result = runPackedCi(workspace, target, coreArchive);
+      const result = runPackedCi(workspace, target, coreArchive, 'bun');
 
       expect(result.exitCode, output(result)).toBe(0);
       expect(output(result)).toContain('core-crud');
+      const resolution = verifyGeneratedCoreResolution(target);
+      expect(resolution.exitCode, output(resolution)).toBe(0);
+      const manifest = JSON.parse(
+        readFileSync(resolve(target, '.nest-base/manifest.json'), 'utf8'),
+      ) as { packageManager: string; installArgs: string[] };
+      const packageJson = JSON.parse(
+        readFileSync(resolve(target, 'package.json'), 'utf8'),
+      ) as {
+        nestBase: {
+          packageManager: string;
+          launcher: string;
+          installEnabled: boolean;
+          installArgs: string[];
+          capabilities: unknown[];
+        };
+      };
+      expect(manifest.packageManager).toBe('bun');
+      expect(manifest.installArgs).toEqual(['install']);
+      expect(packageJson.nestBase).toMatchObject({
+        packageManager: 'bun',
+        launcher: 'bunx',
+        installEnabled: true,
+        installArgs: ['install'],
+        capabilities: [{ id: 'core-crud' }],
+      });
     } finally {
       rmSync(workspace, { recursive: true, force: true });
       rmSync(wizardArchiveDirectory, { recursive: true, force: true });
       rmSync(coreArchiveDirectory, { recursive: true, force: true });
     }
+  });
+
+  it('runs the packed wizard HTTP-core gate with packed core through ESM and CJS', () => {
+    const workspace = createConsumer();
+    const wizardArchiveDirectory = createConsumer();
+    const coreArchiveDirectory = createConsumer();
+    const httpCoreArchiveDirectory = createConsumer();
+    try {
+      const wizardArchive = packInto(wizardArchiveDirectory);
+      const coreArchive = packCoreInto(coreArchiveDirectory);
+      const httpCoreArchive = packHttpCoreInto(httpCoreArchiveDirectory);
+      const install = run(['bun', 'add', wizardArchive], workspace);
+      expect(install.exitCode, output(install)).toBe(0);
+
+      const target = resolve(workspace, 'generated-http-core-app');
+      mkdirSync(resolve(target, 'src'), { recursive: true });
+      mkdirSync(resolve(target, 'test'), { recursive: true });
+      writeFileSync(
+        resolve(target, 'package.json'),
+        JSON.stringify({ name: 'generated-http-core-app' }),
+      );
+      const result = runPackedHttpCoreCi(
+        workspace,
+        target,
+        coreArchive,
+        httpCoreArchive,
+      );
+
+      expect(result.exitCode, output(result)).toBe(0);
+      expect(output(result)).toContain('http-core');
+      const resolution = verifyGeneratedCoreResolution(target);
+      expect(resolution.exitCode, output(resolution)).toBe(0);
+      const packageJson = JSON.parse(
+        readFileSync(resolve(target, 'package.json'), 'utf8'),
+      ) as { nestBase: { capabilities: Array<{ id: string }> } };
+      expect(packageJson.nestBase.capabilities.map(({ id }) => id)).toEqual([
+        'core-crud',
+        'http-core',
+      ]);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(wizardArchiveDirectory, { recursive: true, force: true });
+      rmSync(coreArchiveDirectory, { recursive: true, force: true });
+      rmSync(httpCoreArchiveDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('runs packed core acceptance for every available supported manager', () => {
+    const supportedManagers = ['bun', 'npm', 'pnpm', 'yarn'] as const;
+    const availableManagers = new Set(
+      supportedManagers.filter((manager) => {
+        const executable = resolveAvailableManager(manager);
+        console.log(
+          `packed manager evidence: ${manager}=${executable ? `available (${executable})` : 'unavailable'}`,
+        );
+        return Boolean(executable);
+      }),
+    );
+
+    const acceptance: Record<
+      'bun' | 'npm' | 'pnpm' | 'yarn',
+      ManagerAcceptanceEvidence
+    > = {
+      bun: classifyManagerAcceptance({ available: false, exitCode: 1 }),
+      npm: classifyManagerAcceptance({ available: false, exitCode: 1 }),
+      pnpm: classifyManagerAcceptance({ available: false, exitCode: 1 }),
+      yarn: classifyManagerAcceptance({ available: false, exitCode: 1 }),
+    };
+
+    for (const packageManager of supportedManagers) {
+      if (!availableManagers.has(packageManager)) continue;
+      const workspace = createConsumer();
+      const wizardArchiveDirectory = createConsumer();
+      const coreArchiveDirectory = createConsumer();
+      try {
+        const wizardArchive = packInto(wizardArchiveDirectory);
+        const coreArchive = packCoreInto(coreArchiveDirectory);
+        const install = run([npmExecutable, 'add', wizardArchive], workspace);
+        if (install.exitCode !== 0) {
+          acceptance[packageManager] = classifyManagerAcceptance({
+            available: true,
+            exitCode: install.exitCode,
+            output: output(install),
+          });
+          continue;
+        }
+
+        const target = resolve(workspace, `generated-${packageManager}-app`);
+        mkdirSync(resolve(target, 'src'), { recursive: true });
+        mkdirSync(resolve(target, 'test'), { recursive: true });
+        writeFileSync(
+          resolve(target, 'package.json'),
+          JSON.stringify({ name: `generated-${packageManager}-app` }),
+        );
+        const result = runPackedCi(
+          workspace,
+          target,
+          coreArchive,
+          packageManager,
+        );
+
+        const resultOutput = output(result);
+        const resolution =
+          result.exitCode === 0
+            ? verifyGeneratedCoreResolution(target)
+            : undefined;
+        const combinedOutput = `${resultOutput}${
+          resolution ? output(resolution) : ''
+        }`;
+        acceptance[packageManager] = classifyManagerAcceptance({
+          available: true,
+          exitCode:
+            result.exitCode === 0 && resolution?.exitCode === 0
+              ? 0
+              : result.exitCode || resolution?.exitCode || 1,
+          output: combinedOutput,
+        });
+        if (acceptance[packageManager].status === 'passed') {
+          expect(resultOutput).toContain('core-crud');
+          continue;
+        }
+
+        console.log(
+          `packed manager acceptance ${acceptance[packageManager].status}: ${packageManager}; ${combinedOutput || 'wizard install failed'}`,
+        );
+      } catch (error) {
+        acceptance[packageManager] = classifyManagerAcceptance({
+          available: true,
+          exitCode: 1,
+          output: error instanceof Error ? error.message : String(error),
+        });
+        console.log(
+          `packed manager acceptance ${acceptance[packageManager].status}: ${packageManager}; ${acceptance[packageManager].reason}`,
+        );
+      } finally {
+        rmSync(workspace, { recursive: true, force: true });
+        rmSync(wizardArchiveDirectory, { recursive: true, force: true });
+        rmSync(coreArchiveDirectory, { recursive: true, force: true });
+      }
+    }
+
+    expect(Object.keys(acceptance).sort()).toEqual([
+      'bun',
+      'npm',
+      'pnpm',
+      'yarn',
+    ]);
+    for (const result of Object.values(acceptance))
+      expect([
+        'unavailable',
+        'environment-blocked',
+        'passed',
+        'failed',
+      ]).toContain(result.status);
+    const summary = evaluateManagerAcceptance(acceptance);
+    expect(summary.matrixPassed).toBe(
+      Object.values(acceptance).every(({ status }) => status === 'passed'),
+    );
+    expect(summary.releaseEvidence).toBe(summary.matrixPassed);
+    expect(summary.publicationAllowed).toBe(summary.matrixPassed);
+    const outputPath = process.env.NEST_BASE_RELEASE_MANAGER_OUTPUT;
+    if (outputPath) writeFileSync(outputPath, JSON.stringify(acceptance));
   });
 });

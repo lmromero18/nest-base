@@ -6,5 +6,7 @@ export type {
   CrudControllerConstructor,
   CrudControllerInstance,
   CrudControllerOptions,
+  CrudRoutePolicy,
+  CrudAuthorization,
   CrudRoute,
 } from './crud-controller.factory.impl.js';

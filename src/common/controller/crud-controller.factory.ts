@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Query,
+  SetMetadata,
   Type,
   ValidationPipe,
 } from '@nestjs/common';
@@ -45,7 +46,18 @@ export const DEFAULT_CRUD_ROUTES: readonly CrudRoute[] = [
   'softDelete',
 ];
 
+/** Opaque application metadata. Interpretation belongs to consumer guards. */
+export interface CrudRoutePolicy {
+  readonly key: string | symbol;
+  readonly value: unknown;
+}
+export type CrudAuthorization = Partial<
+  Record<CrudRoute, readonly CrudRoutePolicy[]>
+>;
+
 export interface CrudControllerOptions {
+  authorization?: CrudAuthorization;
+  strictAuthorizationCoverage?: boolean;
   /** DTO real de creación: aquí vive la validación del body (obligatorio si la ruta create está habilitada). */
   createDto?: Type<unknown>;
   /** DTO real de actualización (obligatorio si la ruta update está habilitada). */
@@ -97,7 +109,79 @@ export type CrudControllerConstructor<T extends ObjectLiteral> = abstract new (
 export function CrudControllerFactory<T extends ObjectLiteral>(
   options: CrudControllerOptions = {},
 ): CrudControllerConstructor<T> {
+  const allRoutes: readonly CrudRoute[] = [
+    ...DEFAULT_CRUD_ROUTES,
+    'hardDelete',
+    'restore',
+  ];
+  if (
+    !options ||
+    typeof options !== 'object' ||
+    (options.routes !== undefined &&
+      (!Array.isArray(options.routes) ||
+        (options.routes as readonly unknown[]).some(
+          (route) => !allRoutes.includes(route as CrudRoute),
+        ))) ||
+    (options.strictAuthorizationCoverage !== undefined &&
+      typeof options.strictAuthorizationCoverage !== 'boolean')
+  ) {
+    throw new Error(
+      'CrudControllerFactory: invalid routes or strictAuthorizationCoverage',
+    );
+  }
   const routes = new Set<CrudRoute>(options.routes ?? DEFAULT_CRUD_ROUTES);
+  const policies = options.authorization;
+  if (policies !== undefined) {
+    if (!policies || Object.getPrototypeOf(policies) !== Object.prototype) {
+      throw new Error(
+        'CrudControllerFactory: authorization must be a route policy map',
+      );
+    }
+    for (const [route, entries] of Object.entries(policies)) {
+      if (
+        !allRoutes.includes(route as CrudRoute) ||
+        !Array.isArray(entries) ||
+        !entries.length
+      ) {
+        throw new Error(
+          `CrudControllerFactory: invalid authorization for ${route}`,
+        );
+      }
+      const keys = new Set<string | symbol>();
+      for (const rawEntry of entries as readonly unknown[]) {
+        const entry = rawEntry as { key?: unknown; value?: unknown } | null;
+        if (
+          !entry ||
+          typeof entry !== 'object' ||
+          !(
+            (typeof entry.key === 'string' && entry.key.trim().length > 0) ||
+            typeof entry.key === 'symbol'
+          ) ||
+          !Object.prototype.hasOwnProperty.call(entry, 'value') ||
+          entry.value === undefined ||
+          keys.has(entry.key)
+        ) {
+          throw new Error(
+            `CrudControllerFactory: malformed policy for ${route}`,
+          );
+        }
+        keys.add(entry.key);
+      }
+    }
+  }
+  if (options.strictAuthorizationCoverage) {
+    for (const route of routes) {
+      if (
+        !policies ||
+        !Object.prototype.hasOwnProperty.call(policies, route) ||
+        !policies[route]?.length
+      ) {
+        throw new Error(
+          `CrudControllerFactory: missing authorization policy for ${route}`,
+        );
+      }
+    }
+  }
 
   if (routes.has('create') && !options.createDto) {
     throw new Error(
@@ -256,6 +340,13 @@ export function CrudControllerFactory<T extends ObjectLiteral>(
     if (!descriptor) continue;
     for (const decorator of routeDecorators[route]) {
       decorator(CrudController.prototype, route, descriptor);
+    }
+    for (const policy of policies?.[route] ?? []) {
+      SetMetadata(policy.key, policy.value)(
+        CrudController.prototype,
+        route,
+        descriptor,
+      );
     }
   }
 

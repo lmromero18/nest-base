@@ -11,7 +11,6 @@ import {
   type TargetFileSystem,
 } from './preflight.js';
 import {
-  buildScaffoldCommand,
   verifyVanillaScaffold,
   type ScaffoldCommand,
   type ScaffoldFileSystem,
@@ -21,11 +20,18 @@ import type {
   ArtifactRecord,
   IndependentConsumerGate,
 } from './artifact-gate.js';
+import { assertSha512Integrity } from './artifact-gate.js';
 import { confirmPlan, normalizeInteractiveInput, renderPreview } from './ux.js';
 import { createIndependentConsumerGate } from './consumer-gate.js';
-import type { CiInput, NormalizedPlan, ParsedCliArgs } from './types.js';
+import {
+  isPackageManager,
+  type CiInput,
+  type NormalizedPlan,
+  type PackageManager,
+  type ParsedCliArgs,
+} from './types.js';
 import { dirname, basename } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import {
   applyOwnedWrites,
   buildMetadataPreview,
@@ -33,6 +39,11 @@ import {
   rollbackOwnedWrites,
   type MetadataFileSystem,
 } from './metadata.js';
+import {
+  createPackageManagerAdapter,
+  type InstallCommand,
+  type PackageManagerAdapter,
+} from './install.js';
 
 export interface CliPipelineDependencies {
   fileSystem: TargetFileSystem;
@@ -43,7 +54,9 @@ export interface CliPipelineDependencies {
   scaffold: (command: ScaffoldCommand, cwd: string) => Promise<void>;
   scaffoldFileSystem: ScaffoldFileSystem;
   metadataFileSystem?: MetadataFileSystem;
-  install: (command: { cwd: string; args: ['install'] }) => Promise<void>;
+  install: (command: InstallCommand) => Promise<void>;
+  packageManagerAdapter?: PackageManagerAdapter;
+  rollbackScaffold?: (target: string) => { leftovers: string[] };
 }
 
 export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
@@ -53,6 +66,9 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
     yes: false,
     help: false,
     retry: false,
+    skipInstall: false,
+    strict: true,
+    skipGit: true,
   };
   const selections: string[] = [];
   for (let index = 0; index < argv.length; index += 1) {
@@ -63,6 +79,11 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
     else if (arg === '--yes') result.yes = true;
     else if (arg === '--help' || arg === '-h') result.help = true;
     else if (arg === '--retry') result.retry = true;
+    else if (arg === '--skip-install') result.skipInstall = true;
+    else if (arg === '--strict') result.strict = true;
+    else if (arg === '--skip-git') result.skipGit = true;
+    else if (arg === '--package-manager')
+      result.packageManager = requiredValue(arg, next) as PackageManager;
     else if (arg === '--logger') selections.push('logger');
     else if (arg === '--select')
       selections.push(...requiredValue(arg, next).split(','));
@@ -79,6 +100,12 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
       result.loggerSource = requiredValue(arg, next);
     else if (arg === '--logger-integrity')
       result.loggerIntegrity = requiredValue(arg, next) as `sha512-${string}`;
+    else if (arg === '--http-core-version')
+      result.httpCoreVersion = requiredValue(arg, next);
+    else if (arg === '--http-core-source')
+      result.httpCoreSource = requiredValue(arg, next);
+    else if (arg === '--http-core-integrity')
+      result.httpCoreIntegrity = requiredValue(arg, next) as `sha512-${string}`;
     else throw new Error(`Unknown option "${arg}".`);
     if (
       [
@@ -90,6 +117,10 @@ export function parseCliArgs(argv: readonly string[]): ParsedCliArgs {
         '--logger-version',
         '--logger-source',
         '--logger-integrity',
+        '--http-core-version',
+        '--http-core-source',
+        '--http-core-integrity',
+        '--package-manager',
       ].includes(arg)
     )
       index += 1;
@@ -110,8 +141,11 @@ function requiredValue(option: string, value: string | undefined): string {
 export function normalizeCiInput(input: CiInput): NormalizedPlan {
   if (!input.target?.trim())
     throw new Error('CI mode requires an explicit target.');
+  const packageManager = requirePackageManager(input.packageManager, true);
   const target = input.target;
-  const selections = input.selections ?? ['core-crud'];
+  if (!input.selections)
+    throw new Error('CI mode requires an explicit --select capability list.');
+  const selections = input.selections;
   const descriptors = resolveCapabilities(selections);
   requireCiArtifact(
     'core',
@@ -127,9 +161,19 @@ export function normalizeCiInput(input: CiInput): NormalizedPlan {
       input.loggerVersion,
       input.loggerIntegrity,
     );
+  const hasHttpCore = descriptors.some((entry) => entry.id === 'http-core');
+  if (hasHttpCore)
+    requireCiArtifact(
+      'http-core',
+      input.httpCoreSource,
+      input.httpCoreVersion,
+      input.httpCoreIntegrity,
+    );
   return normalizeInteractiveInput({
     ...input,
     target,
+    packageManager,
+    installEnabled: input.installEnabled ?? true,
     logger: hasLogger,
     coreSource: input.coreSource,
     coreVersion: input.coreVersion,
@@ -137,6 +181,9 @@ export function normalizeCiInput(input: CiInput): NormalizedPlan {
     loggerSource: input.loggerSource,
     loggerVersion: input.loggerVersion,
     loggerIntegrity: input.loggerIntegrity,
+    httpCoreSource: input.httpCoreSource,
+    httpCoreVersion: input.httpCoreVersion,
+    httpCoreIntegrity: input.httpCoreIntegrity,
   });
 }
 
@@ -148,12 +195,14 @@ function requireCiArtifact(
 ): void {
   if (!source) throw new Error(`CI mode requires ${capability} source.`);
   if (!version) throw new Error(`CI mode requires ${capability} version.`);
-  if (
-    !integrity ||
-    !/^sha512-.+/.test(integrity) ||
-    integrity === 'sha512-pending'
-  )
+  if (!integrity) {
     throw new Error(`CI mode requires ${capability} integrity.`);
+  }
+  try {
+    assertSha512Integrity(integrity);
+  } catch {
+    throw new Error(`CI mode requires ${capability} integrity.`);
+  }
 }
 
 export function normalizeParsedCli(args: ParsedCliArgs): NormalizedPlan {
@@ -161,6 +210,8 @@ export function normalizeParsedCli(args: ParsedCliArgs): NormalizedPlan {
     return normalizeCiInput({
       ci: true,
       target: args.target ?? '',
+      packageManager: args.packageManager,
+      installEnabled: !args.skipInstall,
       selections: args.selections,
       coreVersion: args.coreVersion,
       coreSource: args.coreSource ? inferSource(args.coreSource) : undefined,
@@ -170,10 +221,17 @@ export function normalizeParsedCli(args: ParsedCliArgs): NormalizedPlan {
         ? inferSource(args.loggerSource)
         : undefined,
       loggerIntegrity: args.loggerIntegrity,
+      httpCoreVersion: args.httpCoreVersion,
+      httpCoreSource: args.httpCoreSource
+        ? inferSource(args.httpCoreSource)
+        : undefined,
+      httpCoreIntegrity: args.httpCoreIntegrity,
     });
   }
   return normalizeInteractiveInput({
     target: args.target ?? '',
+    packageManager: args.packageManager,
+    installEnabled: !args.skipInstall,
     logger: args.selections?.includes('logger'),
     selections: args.selections,
     coreVersion: args.coreVersion,
@@ -184,7 +242,25 @@ export function normalizeParsedCli(args: ParsedCliArgs): NormalizedPlan {
       ? inferSource(args.loggerSource)
       : undefined,
     loggerIntegrity: args.loggerIntegrity,
+    httpCoreVersion: args.httpCoreVersion,
+    httpCoreSource: args.httpCoreSource
+      ? inferSource(args.httpCoreSource)
+      : undefined,
+    httpCoreIntegrity: args.httpCoreIntegrity,
   });
+}
+
+function requirePackageManager(
+  value: unknown,
+  required: boolean,
+): PackageManager {
+  if (value === undefined && !required) return 'bun';
+  if (!isPackageManager(value)) {
+    throw new Error(
+      `${required ? 'CI mode requires' : 'Invalid'} package manager; allowed values are npm, pnpm, yarn, or bun.`,
+    );
+  }
+  return value;
 }
 
 export function serializePlan(plan: NormalizedPlan): string {
@@ -250,36 +326,52 @@ async function executePipeline(
       },
       dependencies.artifactLoaders,
       dependencies.independentConsumerGate,
+      capability.id,
+      verifiedArtifacts,
     );
     verifiedArtifacts.set(capability.id, artifact);
   }
 
   const projectName = basename(preflight.target);
-  if (!preflight.existing || !args.retry)
-    await dependencies.scaffold(
-      buildScaffoldCommand(projectName),
-      dirname(preflight.target),
-    );
-  verifyVanillaScaffold(preflight.target, dependencies.scaffoldFileSystem);
+  const packageManagerAdapter =
+    dependencies.packageManagerAdapter ??
+    createPackageManagerAdapter(plan.packageManager);
   const metadataFileSystem = dependencies.metadataFileSystem;
-  const metadata = metadataFileSystem
-    ? buildMetadataPreview(plan, metadataFileSystem, verifiedArtifacts)
-    : undefined;
-  if (metadata && metadataFileSystem)
-    applyOwnedWrites(metadata, metadataFileSystem);
+  let metadata: ReturnType<typeof buildMetadataPreview> | undefined;
   try {
-    await dependencies.install({ cwd: preflight.target, args: ['install'] });
+    if (!preflight.existing || !args.retry)
+      await dependencies.scaffold(
+        packageManagerAdapter.scaffoldCommand(projectName),
+        dirname(preflight.target),
+      );
+    verifyVanillaScaffold(preflight.target, dependencies.scaffoldFileSystem);
+    metadata = metadataFileSystem
+      ? buildMetadataPreview(plan, metadataFileSystem, verifiedArtifacts)
+      : undefined;
+    if (metadata && metadataFileSystem)
+      applyOwnedWrites(metadata, metadataFileSystem);
+    if (plan.installEnabled)
+      await dependencies.install(
+        packageManagerAdapter.installCommand(preflight.target),
+      );
   } catch (error) {
+    const leftovers: string[] = [];
     if (metadata && metadataFileSystem) {
       const rollback = rollbackOwnedWrites(metadata, metadataFileSystem);
-      const detail = rollback.leftovers.length
-        ? ` Leftovers: ${rollback.leftovers.join(', ')}. Recovery is required.`
-        : ' Rollback completed.';
-      throw new Error(
-        `${error instanceof Error ? error.message : String(error)}${detail}`,
-      );
+      leftovers.push(...rollback.leftovers);
     }
-    throw error;
+    if (!preflight.existing && !args.retry) {
+      const rollback = dependencies.rollbackScaffold?.(preflight.target) ?? {
+        leftovers: [],
+      };
+      leftovers.push(...rollback.leftovers);
+    }
+    const detail = leftovers.length
+      ? ` Leftovers: ${leftovers.join(', ')}. Recovery is required.`
+      : ' Rollback completed.';
+    throw new Error(
+      `${error instanceof Error ? error.message : String(error)}${detail}`,
+    );
   }
   return { exitCode: 0, output: renderPreview(plan), plan };
 }
@@ -337,13 +429,20 @@ export function createDefaultPipelineDependencies(
       isDirectory: (path) => defaultFileSystem.isDirectory(path),
     },
     metadataFileSystem: createMetadataFileSystem(),
+    rollbackScaffold: (target) => {
+      rmSync(target, { recursive: true, force: true });
+      return { leftovers: existsSync(target) ? [target] : [] };
+    },
     install: async (command) => {
-      const process = Bun.spawn(['bun', ...command.args], {
+      if (!command.executable)
+        throw new Error('Package manager executable is unavailable.');
+      const process = Bun.spawn([command.executable, ...command.args], {
         cwd: command.cwd,
         stdout: 'inherit',
         stderr: 'inherit',
       });
-      if ((await process.exited) !== 0) throw new Error('Bun install failed.');
+      if ((await process.exited) !== 0)
+        throw new Error(`${command.executable} install failed.`);
     },
   };
 }
@@ -351,7 +450,9 @@ export function createDefaultPipelineDependencies(
 export function formatHelp(): string {
   return [
     'create-nest-base [--ci] --target <directory> [options]',
-    '--select <core-crud,logger>  Select capabilities (core-crud is mandatory).',
+    '--package-manager <npm|pnpm|yarn|bun>  Required in CI; interactive defaults to bun.',
+    '--select <core-crud,http-core,logger>  Select capabilities; core-crud is mandatory and core-only opts out of recommended HTTP Core.',
+    '--skip-install              Disable the final package-manager install.',
     '--dry-run                   Preview the normalized plan without writes.',
     '--yes                       Confirm a complete plan in CI.',
     '--retry                     Retry installation in an existing scaffold without deleting files.',

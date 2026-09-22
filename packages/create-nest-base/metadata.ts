@@ -8,10 +8,11 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { getCapability } from './registry.js';
 import type { ArtifactRecord } from './artifact-gate.js';
 import type { NormalizedPlan, ResolvedCapability } from './types.js';
+import { describePackageManagerCommands } from './install.js';
 
 const MANIFEST_PATH = '.nest-base/manifest.json';
 const MAX_COMPENSATION_WRITES = 32;
@@ -19,7 +20,37 @@ const MIRROR_KEYS = [
   'schemaVersion',
   'wizardVersion',
   'manifestPath',
+  'packageManager',
+  'launcher',
+  'installEnabled',
+  'scaffoldArgs',
+  'installArgs',
+  'registryRevision',
   'capabilities',
+];
+const LEGACY_MIRROR_KEYS = [
+  'schemaVersion',
+  'wizardVersion',
+  'manifestPath',
+  'capabilities',
+];
+const MANIFEST_BASE_KEYS = [
+  'schemaVersion',
+  'wizardVersion',
+  'target',
+  'registryRevision',
+  'resolvedEntries',
+  'dependencySections',
+  'ownedPaths',
+  'hashes',
+  'hashRule',
+];
+const MANIFEST_PROVENANCE_KEYS = [
+  'packageManager',
+  'launcher',
+  'installEnabled',
+  'scaffoldArgs',
+  'installArgs',
 ];
 // The manifest hash is calculated from the canonical manifest with its own
 // hash entry omitted. This explicit rule prevents circular self-hashing.
@@ -56,18 +87,29 @@ export interface MetadataPreview {
 export type VerifiedArtifacts = ReadonlyMap<string, ArtifactRecord>;
 
 export interface NestBaseMirror {
-  schemaVersion: 1;
+  schemaVersion: 2;
   wizardVersion: string;
   manifestPath: '.nest-base/manifest.json';
-  capabilities: ResolvedCapability[];
+  packageManager: NormalizedPlan['packageManager'];
+  launcher: string;
+  installEnabled: boolean;
+  scaffoldArgs: string[];
+  installArgs: ['install'];
+  registryRevision: string;
+  capabilities: readonly ResolvedCapability[];
 }
 
 export interface CanonicalManifest {
-  schemaVersion: 1;
+  schemaVersion: 2;
   wizardVersion: string;
   target: string;
+  packageManager: NormalizedPlan['packageManager'];
+  launcher: string;
+  installEnabled: boolean;
+  scaffoldArgs: string[];
+  installArgs: ['install'];
   registryRevision: string;
-  resolvedEntries: ResolvedCapability[];
+  resolvedEntries: readonly ResolvedCapability[];
   dependencySections: {
     dependencies: Record<string, string>;
     devDependencies: Record<string, string>;
@@ -114,12 +156,38 @@ export function buildMetadataPreview(
   );
   validateExistingMirror(packageBefore.nestBase);
   const existingManifest = fileSystem.readFile(manifestPath);
+  let legacyManifest = false;
+  const commands = describePackageManagerCommands(
+    plan.packageManager,
+    basename(plan.target),
+  );
   if (existingManifest !== undefined) {
     const parsed = readJson(existingManifest, MANIFEST_PATH);
     validateManifest(parsed);
+    legacyManifest = parsed.schemaVersion === 1;
     validateCapabilityOwnedOutputs(parsed, plan, fileSystem);
-    if (
+    if (legacyManifest) {
+      if (
+        parsed.registryRevision !== plan.registryRevision ||
+        !sameJson(parsed.resolvedEntries, plan.capabilities)
+      )
+        throw new Error('Metadata drift detected in manifest.');
+      if (
+        hasManifestProvenance(parsed) &&
+        (parsed.packageManager !== plan.packageManager ||
+          parsed.launcher !== commands.scaffold.executable ||
+          parsed.installEnabled !== plan.installEnabled ||
+          !sameJson(parsed.scaffoldArgs, commands.scaffold.args) ||
+          !sameJson(parsed.installArgs, commands.install.args))
+      )
+        throw new Error('Metadata drift detected in manifest.');
+    } else if (
       parsed.registryRevision !== plan.registryRevision ||
+      parsed.packageManager !== plan.packageManager ||
+      parsed.launcher !== commands.scaffold.executable ||
+      parsed.installEnabled !== plan.installEnabled ||
+      !sameJson(parsed.scaffoldArgs, commands.scaffold.args) ||
+      !sameJson(parsed.installArgs, commands.install.args) ||
       !sameJson(parsed.resolvedEntries, plan.capabilities)
     )
       throw new Error('Metadata drift detected in manifest.');
@@ -165,9 +233,15 @@ export function buildMetadataPreview(
   }
 
   const mirror: NestBaseMirror = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     wizardVersion: plan.wizardVersion,
     manifestPath: '.nest-base/manifest.json',
+    packageManager: plan.packageManager,
+    launcher: commands.scaffold.executable,
+    installEnabled: plan.installEnabled,
+    scaffoldArgs: commands.scaffold.args,
+    installArgs: commands.install.args,
+    registryRevision: plan.registryRevision,
     capabilities: plan.capabilities,
   };
   const packageAfter = {
@@ -224,9 +298,14 @@ export function buildMetadataPreview(
     ),
   };
   const manifest: CanonicalManifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     wizardVersion: plan.wizardVersion,
     target: plan.target,
+    packageManager: plan.packageManager,
+    launcher: commands.scaffold.executable,
+    installEnabled: plan.installEnabled,
+    scaffoldArgs: commands.scaffold.args,
+    installArgs: commands.install.args,
     registryRevision: plan.registryRevision,
     resolvedEntries: plan.capabilities,
     dependencySections: sections,
@@ -249,11 +328,12 @@ export function buildMetadataPreview(
   if (existingManifest !== undefined) {
     const parsed = readJson(existingManifest, MANIFEST_PATH);
     validateManifest(parsed);
-    if (!sameJson(parsed, manifest))
+    if (!legacyManifest && !sameJson(parsed, manifest))
       throw new Error('Metadata drift detected in manifest.');
   }
   if (
     packageBefore.nestBase !== undefined &&
+    !legacyManifest &&
     !sameJson(packageBefore.nestBase, mirror)
   )
     throw new Error('Metadata mirror mismatch detected.');
@@ -447,29 +527,47 @@ function validateExistingMirror(value: unknown): void {
   if (value === undefined) return;
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error('Metadata mirror is invalid.');
+  const schemaVersion = (value as JsonObject).schemaVersion;
+  if (schemaVersion !== 1 && schemaVersion !== 2)
+    throw new Error('Metadata mirror schema is invalid.');
   const keys = Object.keys(value);
-  if (keys.some((key) => !MIRROR_KEYS.includes(key)))
+  const allowedKeys =
+    (value as JsonObject).schemaVersion === 1
+      ? LEGACY_MIRROR_KEYS
+      : MIRROR_KEYS;
+  if (keys.some((key) => !allowedKeys.includes(key)))
     throw new Error('Metadata mirror contains unknown fields.');
-  if (keys.length !== MIRROR_KEYS.length)
+  if (keys.length !== allowedKeys.length)
     throw new Error('Metadata mirror is incomplete.');
 }
 
 function validateManifest(value: JsonObject): void {
-  const keys = [
-    'schemaVersion',
-    'wizardVersion',
-    'target',
-    'registryRevision',
-    'resolvedEntries',
-    'dependencySections',
-    'ownedPaths',
-    'hashes',
-    'hashRule',
-  ];
-  if (Object.keys(value).some((key) => !keys.includes(key)))
+  const hasProvenance = hasManifestProvenance(value);
+  const keys =
+    value.schemaVersion === 1
+      ? hasProvenance
+        ? [...MANIFEST_BASE_KEYS, ...MANIFEST_PROVENANCE_KEYS]
+        : MANIFEST_BASE_KEYS
+      : value.schemaVersion === 2
+        ? [
+            ...MANIFEST_BASE_KEYS.slice(0, 3),
+            ...MANIFEST_PROVENANCE_KEYS,
+            ...MANIFEST_BASE_KEYS.slice(3),
+          ]
+        : [];
+  if (
+    keys.length === 0 ||
+    Object.keys(value).some((key) => !keys.includes(key))
+  )
     throw new Error('Manifest contains unknown fields.');
   if (
-    value.schemaVersion !== 1 ||
+    value.schemaVersion === 1 &&
+    hasProvenance &&
+    MANIFEST_PROVENANCE_KEYS.some((key) => !(key in value))
+  )
+    throw new Error('Manifest schema is invalid.');
+  if (
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2) ||
     !Array.isArray(value.resolvedEntries) ||
     !value.hashes ||
     value.hashRule !== MANIFEST_HASH_RULE ||
@@ -479,6 +577,10 @@ function validateManifest(value: JsonObject): void {
       (value.ownedPaths as string[]).slice().sort().join('|')
   )
     throw new Error('Manifest schema is invalid.');
+}
+
+function hasManifestProvenance(value: JsonObject): boolean {
+  return MANIFEST_PROVENANCE_KEYS.some((key) => key in value);
 }
 
 function readSection(value: unknown, section: string): Record<string, string> {

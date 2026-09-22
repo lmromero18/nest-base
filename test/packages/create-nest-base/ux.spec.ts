@@ -12,9 +12,9 @@ describe('create-nest-base interactive UX', () => {
     expect(cards.find((card) => card.id === 'core-crud')?.message).toContain(
       'mandatory',
     );
-    expect(cards.find((card) => card.id === 'logger')?.message).toContain(
-      'optional',
-    );
+    const httpCoreCard = cards.find((card) => card.id === 'http-core');
+    expect(httpCoreCard?.selectable).toBe(true);
+    expect(httpCoreCard?.title).toContain('recommended');
     expect(cards.find((card) => card.id === 'kafka')?.message).toContain(
       'unavailable',
     );
@@ -23,6 +23,7 @@ describe('create-nest-base interactive UX', () => {
   it('normalizes an interactive selection into the canonical plan and preview', () => {
     const plan = normalizeInteractiveInput({
       target: './demo',
+      selections: ['core-crud', 'logger'],
       logger: true,
       coreVersion: '1.2.3',
       coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
@@ -37,6 +38,35 @@ describe('create-nest-base interactive UX', () => {
     ]);
     expect(renderPreview(plan)).toContain('Explicit confirmation required');
     expect(renderPreview(plan)).toContain('./demo');
+  });
+
+  it('selects recommended HTTP core interactively and allows explicit core-only opt-out', () => {
+    const recommended = normalizeInteractiveInput({
+      target: './demo',
+      selections: ['core-crud', 'http-core'],
+      httpCoreVersion: '0.1.0',
+      httpCoreSource: {
+        kind: 'registry',
+        spec: '@nest-base/http-core@0.1.0',
+      },
+    });
+    expect(recommended.capabilities.map((entry) => entry.id)).toEqual([
+      'core-crud',
+      'http-core',
+    ]);
+    expect(recommended.capabilities[1]).toMatchObject({
+      package: '@nest-base/http-core',
+      version: '0.1.0',
+      source: { kind: 'registry', spec: '@nest-base/http-core@0.1.0' },
+      integrity: 'sha512-pending',
+    });
+    expect(
+      normalizeInteractiveInput({
+        target: './demo',
+        selections: ['core-crud'],
+      }).capabilities.map((entry) => entry.id),
+    ).toEqual(['core-crud']);
+    expect(renderPreview(recommended)).toContain('Recommended');
   });
 
   it('assigns the published core tarball integrity to the default capability', () => {

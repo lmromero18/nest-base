@@ -22,6 +22,8 @@ export interface IndependentConsumerGate {
   verify(
     artifact: ArtifactRecord,
     identity: PackedArtifactIdentity,
+    capabilityId?: string,
+    dependencies?: ReadonlyMap<string, ArtifactRecord>,
   ): Promise<void>;
 }
 
@@ -36,8 +38,12 @@ export async function resolveArtifact(
   expected: ArtifactSpec,
   loaders: ArtifactLoaders,
   independentConsumerGate?: IndependentConsumerGate,
+  capabilityId = expected.package === '@nest-base/core'
+    ? 'core-crud'
+    : expected.package,
+  verifiedArtifacts?: ReadonlyMap<string, ArtifactRecord>,
 ): Promise<ArtifactRecord> {
-  assertIntegrity(expected.integrity);
+  assertSha512Integrity(expected.integrity);
   assertSourceIdentity(expected);
   const record = await loaders[expected.kind]?.(expected.spec);
   if (!record)
@@ -58,11 +64,13 @@ export async function resolveArtifact(
   const actual = `sha512-${createHash('sha512').update(record.bytes).digest('base64')}`;
   if (actual !== expected.integrity)
     throw new Error('Artifact integrity mismatch.');
-  if (expected.package === '@nest-base/core')
+  if (capabilityId === 'core-crud' || capabilityId === 'http-core')
     await requireIndependentConsumerGate(
       independentConsumerGate,
       record,
       identity,
+      capabilityId,
+      verifiedArtifacts,
     );
   return record;
 }
@@ -71,6 +79,8 @@ export async function requireIndependentConsumerGate(
   gate: IndependentConsumerGate | undefined,
   artifact?: ArtifactRecord,
   identity?: PackedArtifactIdentity,
+  capabilityId?: string,
+  dependencies?: ReadonlyMap<string, ArtifactRecord>,
 ): Promise<void> {
   if (!gate)
     throw new Error(
@@ -80,13 +90,18 @@ export async function requireIndependentConsumerGate(
     throw new Error(
       'The independent consumer gate requires a packed artifact.',
     );
-  await gate.verify(artifact, identity);
+  await gate.verify(artifact, identity, capabilityId, dependencies);
 }
 
-function assertIntegrity(integrity: string): void {
+export function assertSha512Integrity(
+  integrity: string,
+): asserts integrity is `sha512-${string}` {
+  const encoded = integrity.startsWith('sha512-') ? integrity.slice(7) : '';
   if (
-    !/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(integrity) ||
-    integrity === 'sha512-pending'
+    !/^sha512-(?:[A-Za-z0-9+/]{86}==|[A-Za-z0-9+/]{87}=)$/.test(integrity) ||
+    integrity === 'sha512-pending' ||
+    Buffer.from(encoded, 'base64').length !== 64 ||
+    Buffer.from(encoded, 'base64').toString('base64') !== encoded
   ) {
     throw new Error('Artifact requires a verified sha512 integrity.');
   }

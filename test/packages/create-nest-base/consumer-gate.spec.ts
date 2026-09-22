@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import {
   createConsumerManifest,
   createConsumerInstallCommand,
+  createConsumerBuildCommands,
   createConsumerSource,
   createIndependentConsumerGate,
 } from '../../../packages/create-nest-base/consumer-gate';
@@ -66,6 +67,60 @@ describe('create-nest-base independent consumer gate', () => {
     expect(source).not.toContain('packages/core');
   });
 
+  it('creates a packed HTTP-core consumer without repository-source fallback', () => {
+    const source = createConsumerSource('http-core');
+    expect(source).toContain("from '@nest-base/http-core'");
+    expect(source).not.toContain('packages/http-core');
+    expect(() =>
+      createConsumerManifest('C:/tmp/http-core.tgz', 'http-core'),
+    ).toThrow('packed core dependency');
+    const manifest = createConsumerManifest(
+      'C:/tmp/http-core.tgz',
+      'http-core',
+      new Map([['core-crud', 'C:/tmp/core.tgz']]),
+    );
+    expect(manifest.dependencies['@nest-base/http-core']).toContain(
+      'http-core.tgz',
+    );
+    expect(manifest.dependencies['@nest-base/core']).toContain('core.tgz');
+    expect(manifest.dependencies['@nest-base/core']).not.toBe('0.1.0');
+  });
+
+  it('runs both ESM and CJS build/runtime commands for HTTP-core', () => {
+    expect(createConsumerBuildCommands('http-core')).toEqual([
+      [
+        'build',
+        'src/index.ts',
+        '--outfile',
+        'dist/esm/index.js',
+        '--target',
+        'node',
+        '--format',
+        'esm',
+        '--external',
+        '@nest-base/http-core',
+        '--external',
+        '@nest-base/core',
+      ],
+      ['dist/esm/index.js'],
+      [
+        'build',
+        'src/index.ts',
+        '--outfile',
+        'dist/cjs/index.cjs',
+        '--target',
+        'node',
+        '--format',
+        'cjs',
+        '--external',
+        '@nest-base/http-core',
+        '--external',
+        '@nest-base/core',
+      ],
+      ['dist/cjs/index.cjs'],
+    ]);
+  });
+
   it('compiles and runs a consumer against a real packed core artifact', async () => {
     const archiveDirectory = mkdtempSync(`${tmpdir()}/create-nest-base-core-`);
     const packageRoot = resolve(__dirname, '../../../packages/core');
@@ -113,6 +168,7 @@ describe('create-nest-base independent consumer gate', () => {
       const result = await runCliPipeline(
         {
           ci: true,
+          packageManager: 'bun',
           dryRun: false,
           yes: true,
           help: false,
@@ -121,6 +177,7 @@ describe('create-nest-base independent consumer gate', () => {
           coreVersion: '0.1.0',
           coreSource: '@nest-base/core@0.1.0',
           coreIntegrity: integrity,
+          selections: ['core-crud'],
         },
         {
           fileSystem: {

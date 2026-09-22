@@ -2,7 +2,8 @@
 
 `create-nest-base` creates one fresh, empty NestJS project from a deterministic,
 reviewable plan. It is an orchestration layer: the vanilla project comes from
-the pinned Nest CLI, and Bun remains the package-manager authority.
+the pinned Nest CLI, and the selected npm, pnpm, yarn, or Bun manager owns the
+final install.
 
 ## Quick flow
 
@@ -10,20 +11,24 @@ the pinned Nest CLI, and Bun remains the package-manager authority.
 2. Resolve prerequisites, sources, versions, and integrity before side effects.
 3. Review the normalized preview and explicitly confirm it.
 4. Scaffold with `@nestjs/cli@11.0.0`, using `--strict --skip-install --skip-git`.
-5. Write owned metadata, run exactly one `bun install`, verify, and print the result.
+5. Write owned metadata, run exactly one `<selected-manager> install`, verify, and print the result.
 
 Interactive and CI modes resolve the same normalized plan. CI requires an
-explicit target, capability sources, exact versions, and verified SHA-512
-integrity. Use `--dry-run` to inspect a plan without creating or changing files;
-use `--yes` only with a complete CI plan.
+explicit target, `--package-manager`, capability selection, sources, exact
+versions, and verified SHA-512 integrity. Supported mappings are `npx` + npm,
+`pnpm dlx` + pnpm, `yarn dlx` + yarn, and `bunx` + Bun. The selected executable
+must be installed on `PATH`; unavailable managers are reported as unavailable
+evidence and are never substituted. Use `--dry-run` to inspect a plan without
+creating or changing files; use `--yes` only with a complete CI plan.
 
 ## Capability cards
 
-| Capability                                                      | Selection            | Meaning                                                                             |
-| --------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------- |
-| `core-crud`                                                     | Mandatory and locked | Every generated project starts with the CRUD foundation.                            |
-| `logger`                                                        | Optional             | Selectable only when its real artifact passes the availability and integrity gates. |
-| `websocket`, `events`, `kafka`, `pubsub`, `queues`, `generator` | Visible, unavailable | Roadmap cards show the concrete reason and cannot be installed.                     |
+| Capability                                                      | Selection             | Meaning                                                                                 |
+| --------------------------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------- |
+| `core-crud`                                                     | Mandatory and locked  | Every generated project starts with the CRUD foundation.                                |
+| `logger`                                                        | Optional              | Selectable only when its real artifact passes the availability and integrity gates.     |
+| `http-core`                                                     | Optional, recommended | Selected by interactive mode only when release evidence is bound; `core-crud` opts out. |
+| `websocket`, `events`, `kafka`, `pubsub`, `queues`, `generator` | Visible, unavailable  | Roadmap cards show the concrete reason and cannot be installed.                         |
 
 The wizard does not fabricate package exports. `core-crud` is blocked until a
 real `@nest-base/core` artifact and an independent consumer compile/run gate
@@ -39,7 +44,16 @@ unavailable artifacts fail before confirmation.
 The scaffold command skips installation. For file and URL artifacts, the wizard
 writes the already verified tarball under `.nest-base/artifacts/` and points the
 dependency at that exact local file before invoking exactly one target-CWD
-command: `bun install`. It never uses one `bun add` call per capability.
+command: `<selected-manager> install`. It never uses one add call per capability.
+
+### Release ordering
+
+Publish and enable the HTTP Core recommended default only after the packed core
+consumer, HTTP Core audit, independent ESM/CJS consumers, manager availability
+matrix, and packed wizard matrix all pass. The release metadata intentionally
+keeps publication blocked until those evidence flags are complete. The required
+sequence is core, HTTP Core evidence, then the wizard. See
+`create-nest-base-release.json` for the current version and gate state.
 
 ## Manifest and package metadata
 

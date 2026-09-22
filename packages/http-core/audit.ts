@@ -1,7 +1,9 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const root = resolve(import.meta.dir);
+const root = resolve(
+  process.env.NEST_BASE_HTTP_CORE_PACKAGE_ROOT ?? import.meta.dir,
+);
 const manifest = JSON.parse(
   readFileSync(resolve(root, 'package.json'), 'utf8'),
 ) as {
@@ -10,7 +12,7 @@ const manifest = JSON.parse(
   peerDependencies?: Record<string, string>;
 };
 const expectedPeers = {
-  '@nest-base/core': '>=0.1.0 <0.2.0',
+  '@nest-base/core': '>=0.2.0 <0.3.0',
   '@nestjs/common': '>=11.0.0 <12.0.0',
   '@nestjs/swagger': '>=11.0.0 <12.0.0',
   typeorm: '>=0.3.28 <0.4.0',

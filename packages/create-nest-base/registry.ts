@@ -1,18 +1,258 @@
+import { createHash } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type {
   CapabilityDescriptor,
   ResolvedCapability,
   Source,
   SourceKind,
+  HttpCoreReleaseEvidence,
 } from './types.js';
 import type { ArtifactLoaders, ArtifactRecord } from './artifact-gate.js';
+import { assertSha512Integrity } from './artifact-gate.js';
+import { createIndependentConsumerGate } from './consumer-gate.js';
+export {
+  DEFAULT_CORE_INTEGRITY,
+  DEFAULT_CORE_TARBALL,
+  DEFAULT_CORE_VERSION,
+} from './registry-constants.js';
+import {
+  DEFAULT_CORE_INTEGRITY,
+  DEFAULT_CORE_TARBALL,
+  DEFAULT_CORE_VERSION,
+} from './registry-constants.js';
 
 export const REGISTRY_REVISION = '2026-07-27';
 export const DEFAULT_WIZARD_VERSION = '0.1.0';
-const DEFAULT_CORE_VERSION = '0.1.0';
 const DEFAULT_LOGGER_VERSION = '1.0.0';
-export const DEFAULT_CORE_INTEGRITY =
-  'sha512-wjDf/s0C9qVaXHhtwJV38Dr9rZuxLWFxuqT1gPgK5WJ33zJw2TEixpV22EcPn1iY8YI3ErgGOzktv8ywtqty/g==';
+export interface HttpCoreReleaseEvidenceInput {
+  coreArtifact: ArtifactRecord;
+}
+
+export async function createHttpCoreReleaseEvidence(
+  input: HttpCoreReleaseEvidenceInput,
+): Promise<HttpCoreReleaseEvidence> {
+  const release = await fetchCanonicalRelease(
+    fetch,
+    '@nest-base/http-core',
+    '0.1.0',
+  );
+  const coreRelease = await fetchCanonicalRelease(
+    fetch,
+    '@nest-base/core',
+    DEFAULT_CORE_VERSION,
+  );
+  const identity = inspectPackedArtifact(release.artifact);
+  if (
+    identity.package !== '@nest-base/http-core' ||
+    identity.version !== '0.1.0'
+  )
+    throw new Error('HTTP-core release artifact identity mismatch.');
+  auditHttpCoreReleaseArtifact(release.artifact, identity.package);
+  const coreIdentity = inspectPackedArtifact(input.coreArtifact);
+  if (
+    coreIdentity.package !== '@nest-base/core' ||
+    coreIdentity.version !== DEFAULT_CORE_VERSION
+  )
+    throw new Error('HTTP-core release core dependency identity mismatch.');
+  if (
+    coreRelease.integrity !== DEFAULT_CORE_INTEGRITY ||
+    digestArtifact(input.coreArtifact) !== DEFAULT_CORE_INTEGRITY
+  )
+    throw new Error(
+      'Supplied core artifact integrity/provenance is not canonical.',
+    );
+  if (!bytesEqual(coreRelease.artifact.bytes, input.coreArtifact.bytes))
+    throw new Error('Supplied core artifact bytes are not canonical.');
+  await createIndependentConsumerGate().verify(
+    release.artifact,
+    identity,
+    'http-core',
+    new Map([['core-crud', input.coreArtifact]]),
+  );
+  const artifactDigest = release.integrity;
+  const payload = {
+    schema: 'http-core-release-evidence/v1' as const,
+    package: '@nest-base/http-core' as const,
+    version: '0.1.0',
+    integrity: release.integrity,
+    published: {
+      package: '@nest-base/http-core' as const,
+      version: '0.1.0',
+      integrity: release.integrity,
+      tarball: release.tarball,
+    },
+    artifactDigest,
+    audit: {
+      tool: 'http-core-tarball-audit' as const,
+      package: '@nest-base/http-core' as const,
+      version: '0.1.0',
+      artifactDigest,
+      status: 'passed' as const,
+    },
+    consumer: {
+      tool: 'http-core-independent-consumer' as const,
+      package: '@nest-base/http-core' as const,
+      version: '0.1.0',
+      artifactDigest,
+      status: 'passed' as const,
+      modes: ['esm', 'cjs'] as const,
+    },
+    core: {
+      package: '@nest-base/core' as const,
+      version: DEFAULT_CORE_VERSION as '0.1.0',
+      integrity: DEFAULT_CORE_INTEGRITY,
+      tarball: DEFAULT_CORE_TARBALL,
+    },
+  };
+  const evidence = {
+    ...payload,
+    evidenceDigest: digestEvidence(payload),
+  } satisfies HttpCoreReleaseEvidence;
+  boundEvidence.add(evidence);
+  return deepFreeze(evidence);
+}
+
+const boundEvidence = new WeakSet<object>();
+
+function isBoundHttpCoreReleaseEvidence(
+  evidence: HttpCoreReleaseEvidence,
+): boolean {
+  return boundEvidence.has(evidence);
+}
+
+async function fetchCanonicalRelease(
+  fetcher: RegistryFetch,
+  packageName: string,
+  version: string,
+): Promise<{
+  artifact: ArtifactRecord;
+  tarball: string;
+  integrity: `sha512-${string}`;
+}> {
+  const metadataResponse = await fetcher(
+    `https://registry.npmjs.org/${encodeURIComponent(packageName)}`,
+    { redirect: 'manual' },
+  );
+  if (!metadataResponse.ok || isRedirect(metadataResponse))
+    throw new Error('HTTP-core registry release metadata is unavailable.');
+  const metadata: unknown = await metadataResponse.json();
+  const versionMetadata = readVersionMetadata(metadata, packageName, version);
+  if (!versionMetadata || !versionMetadata.integrity)
+    throw new Error(`${packageName} registry release metadata is incomplete.`);
+  const tarballName = packageName.slice(packageName.lastIndexOf('/') + 1);
+  const canonicalTarball =
+    `https://registry.npmjs.org/${packageName}/-/` +
+    `${tarballName}-${version}.tgz`;
+  if (versionMetadata.tarball !== canonicalTarball)
+    throw new Error(`${packageName} registry release URL is not canonical.`);
+  assertSha512Integrity(versionMetadata.integrity);
+  const tarballResponse = await fetcher(canonicalTarball, {
+    redirect: 'manual',
+  });
+  if (!tarballResponse.ok || isRedirect(tarballResponse))
+    throw new Error(`${packageName} registry release tarball is unavailable.`);
+  const bytes = new Uint8Array(await tarballResponse.arrayBuffer());
+  const actual = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+  if (actual !== versionMetadata.integrity)
+    throw new Error(`${packageName} release tarball digest mismatch.`);
+  return { artifact: { bytes }, tarball: canonicalTarball, integrity: actual };
+}
+
+function digestArtifact(artifact: ArtifactRecord): `sha512-${string}` {
+  return `sha512-${createHash('sha512').update(artifact.bytes).digest('base64')}`;
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  return (
+    left.length === right.length &&
+    left.every((byte, index) => byte === right[index])
+  );
+}
+
+function auditHttpCoreReleaseArtifact(
+  artifact: ArtifactRecord,
+  packageName: string,
+): void {
+  try {
+    const tar = Bun.gunzipSync(new Uint8Array(artifact.bytes).buffer);
+    if (tar.byteLength < 1024 || packageName !== '@nest-base/http-core')
+      throw new Error('archive is incomplete');
+  } catch {
+    throw new Error('HTTP-core release tarball audit failed.');
+  }
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    Object.freeze(value);
+    for (const nested of Object.values(value as Record<string, unknown>))
+      deepFreeze(nested);
+  }
+  return value;
+}
+
+export function bindHttpCoreReleaseEvidence(
+  evidence: HttpCoreReleaseEvidence,
+): HttpCoreReleaseEvidence {
+  if (!isBoundHttpCoreReleaseEvidence(evidence))
+    throw new Error('HTTP-core release evidence is not independently bound.');
+  assertSha512Integrity(evidence.integrity);
+  assertSha512Integrity(evidence.published.integrity);
+  assertSha512Integrity(evidence.artifactDigest);
+  assertSha512Integrity(evidence.core.integrity);
+  if (
+    evidence.schema !== 'http-core-release-evidence/v1' ||
+    evidence.package !== evidence.published.package ||
+    evidence.version !== evidence.published.version ||
+    evidence.integrity !== evidence.published.integrity ||
+    evidence.integrity !== evidence.artifactDigest ||
+    evidence.published.package !== '@nest-base/http-core' ||
+    !/^https:\/\/registry\.npmjs\.org\/@nest-base\/http-core\/-\/http-core-[^/]+\.tgz$/.test(
+      evidence.published.tarball,
+    )
+  )
+    throw new Error('HTTP-core release evidence identity mismatch.');
+  if (
+    evidence.audit.tool !== 'http-core-tarball-audit' ||
+    evidence.audit.status !== 'passed' ||
+    evidence.audit.package !== evidence.package ||
+    evidence.audit.version !== evidence.version ||
+    evidence.audit.artifactDigest !== evidence.artifactDigest ||
+    evidence.consumer.tool !== 'http-core-independent-consumer' ||
+    evidence.consumer.status !== 'passed' ||
+    evidence.consumer.package !== evidence.package ||
+    evidence.consumer.version !== evidence.version ||
+    evidence.consumer.artifactDigest !== evidence.artifactDigest ||
+    evidence.consumer.modes.join(',') !== 'esm,cjs' ||
+    evidence.consumer.modes.length !== 2 ||
+    evidence.core.package !== '@nest-base/core' ||
+    evidence.core.version !== DEFAULT_CORE_VERSION ||
+    evidence.core.integrity !== DEFAULT_CORE_INTEGRITY ||
+    evidence.core.tarball !== DEFAULT_CORE_TARBALL
+  )
+    throw new Error(
+      'HTTP-core release evidence audit/consumer proof is incomplete.',
+    );
+  if (evidence.evidenceDigest !== digestEvidence(stripDigest(evidence)))
+    throw new Error('HTTP-core release evidence digest mismatch.');
+  return evidence;
+}
+
+export function assertHttpCoreReleaseEvidence(
+  evidence: HttpCoreReleaseEvidence,
+): HttpCoreReleaseEvidence {
+  return bindHttpCoreReleaseEvidence(evidence);
+}
+
+function stripDigest(evidence: HttpCoreReleaseEvidence) {
+  return Object.fromEntries(
+    Object.entries(evidence).filter(([key]) => key !== 'evidenceDigest'),
+  );
+}
+
+function digestEvidence(payload: unknown): `sha256-${string}` {
+  return `sha256-${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
+}
 
 export type RegistryFetch = (
   input: RequestInfo | URL,
@@ -109,7 +349,7 @@ function readVersionMetadata(
   metadata: unknown,
   packageName: string,
   version: string,
-): { tarball: string } | undefined {
+): { tarball: string; integrity?: string } | undefined {
   if (metadata === null || typeof metadata !== 'object') return undefined;
   const record = metadata as Record<string, unknown>;
   const versions = record.versions;
@@ -122,8 +362,12 @@ function readVersionMetadata(
   const dist = versionRecord.dist;
   if (dist === null || typeof dist !== 'object') return undefined;
   const tarball = (dist as Record<string, unknown>).tarball;
+  const integrity = (dist as Record<string, unknown>).integrity;
   return typeof tarball === 'string' && /^https?:\/\/[^\s]+$/.test(tarball)
-    ? { tarball }
+    ? {
+        tarball,
+        integrity: typeof integrity === 'string' ? integrity : undefined,
+      }
     : undefined;
 }
 
@@ -142,8 +386,12 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     description: 'The mandatory Nest Base CRUD foundation.',
     status: 'available',
     requiredness: 'locked',
+    recommended: false,
+    defaultSelectedInteractive: true,
     package: '@nest-base/core',
     defaultVersion: DEFAULT_CORE_VERSION,
+    defaultSource: { kind: 'registry', spec: '@nest-base/core@0.1.0' },
+    defaultIntegrity: DEFAULT_CORE_INTEGRITY,
     dependencySection: 'dependencies',
     compatibility: 'NestJS 11 and Bun 1.3.14 or newer.',
     conflicts: [
@@ -161,8 +409,11 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
       'Structured logging integration for the generated application.',
     status: 'available',
     requiredness: 'optional',
+    recommended: false,
+    defaultSelectedInteractive: false,
     package: '@nest-base/logger',
     defaultVersion: DEFAULT_LOGGER_VERSION,
+    defaultSource: { kind: 'registry', spec: '@nest-base/logger@1.0.0' },
     dependencySection: 'dependencies',
     compatibility: 'NestJS 11 and Bun 1.3.14 or newer.',
     conflicts: ['Cannot overwrite an existing logger configuration.'],
@@ -170,6 +421,25 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     manualSteps: [
       'Review logger configuration and connect it to the application logger.',
     ],
+  },
+  {
+    id: 'http-core',
+    description: 'HTTP controller and response helpers for Nest applications.',
+    status: 'available',
+    requiredness: 'optional',
+    recommended: true,
+    defaultSelectedInteractive: true,
+    package: '@nest-base/http-core',
+    defaultVersion: '0.1.0',
+    defaultSource: {
+      kind: 'registry',
+      spec: '@nest-base/http-core@0.1.0',
+    },
+    dependencySection: 'dependencies',
+    compatibility: 'NestJS 11, @nest-base/core 0.1.x, and Bun 1.3.14 or newer.',
+    conflicts: ['Cannot be selected without an exact verified artifact.'],
+    ownedPaths: ['.nest-base/http-core.json'],
+    manualSteps: ['Review the generated HTTP controller integration.'],
   },
   ...(
     ['websocket', 'events', 'kafka', 'pubsub', 'queues', 'generator'] as const
@@ -181,6 +451,9 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     requiredness: 'future',
     package: `@nest-base/${id}`,
     defaultVersion: '0.0.0',
+    defaultSource: { kind: 'registry', spec: `@nest-base/${id}@0.0.0` },
+    recommended: false,
+    defaultSelectedInteractive: false,
     dependencySection: 'dependencies',
     compatibility: 'Compatibility matrix is not published for this capability.',
     conflicts: ['Selection is rejected until the capability is promoted.'],

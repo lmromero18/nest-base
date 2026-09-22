@@ -1,0 +1,19 @@
+name: nest-base-tests
+services:
+  nest-base-postgres-test:
+    image: postgres:17
+    ports:
+      - '127.0.0.1:${NEST_BASE_TEST_PORT:-5434}:5432'
+    environment:
+      POSTGRES_USER: nest_base_test
+      POSTGRES_DB: nest_base_test
+      POSTGRES_PASSWORD: ${NEST_BASE_TEST_PASSWORD:?Run bun run test:postgres:setup}
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U nest_base_test -d nest_base_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - nest-base-postgres-test-data:/var/lib/postgresql/data
+volumes:
+  nest-base-postgres-test-data:

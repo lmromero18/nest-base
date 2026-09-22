@@ -436,3 +436,7 @@ bun test
 ```
 
 Los tests viven en `test/` espejando `src/` (`test/common/query/…`, `test/modules/health/…`). El parser de filtros y `BaseService` tienen suites unitarias sin base de datos; health tiene e2e con `app.inject()`.
+
+## Scope y metadata de autorización
+
+Extensiones opcionales y notas de migración: [guía](docs/scope-authorization-migration.md).

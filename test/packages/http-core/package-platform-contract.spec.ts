@@ -12,7 +12,9 @@ import {
 } from '../../../packages/http-core/audit-tarball';
 import {
   createHttpCoreConsumerManifest,
+  getHttpCoreConsumerCorePackageRoot,
   getHttpCoreConsumerCommands,
+  getPublishedCoreTypesPath,
   assertHttpCoreConsumerProvenance,
   hasRepositorySourceImport,
 } from '../../../packages/http-core/verify-consumer';
@@ -24,7 +26,7 @@ describe('@nest-base/http-core package-platform evidence', () => {
       manifest: {
         dependencies: { '@nestjs/common': '^11.0.0' },
         peerDependencies: {
-          '@nest-base/core': '>=0.1.0 <0.2.0',
+          '@nest-base/core': '>=0.2.0 <0.3.0',
           '@nestjs/common': '>=11.0.0 <12.0.0',
           '@nestjs/swagger': '>=11.0.0 <12.0.0',
           typeorm: '>=0.3.28 <0.4.0',
@@ -101,12 +103,14 @@ describe('@nest-base/http-core package-platform evidence', () => {
   });
 
   it('builds an isolated tarball consumer and rejects workspace-source fallback', () => {
-    expect(createHttpCoreConsumerManifest('C:/tmp/http-core.tgz')).toEqual({
+    expect(
+      createHttpCoreConsumerManifest('C:/tmp/http-core.tgz', 'C:/tmp/core.tgz'),
+    ).toEqual({
       name: 'nest-base-http-core-independent-consumer',
       private: true,
       type: 'module',
       dependencies: {
-        '@nest-base/core': '0.1.0',
+        '@nest-base/core': 'file:C:/tmp/core.tgz',
         '@nest-base/http-core': 'file:C:/tmp/http-core.tgz',
         '@nestjs/common': '>=11.0.0 <12.0.0',
         '@nestjs/swagger': '>=11.0.0 <12.0.0',
@@ -127,6 +131,33 @@ describe('@nest-base/http-core package-platform evidence', () => {
     expect(
       hasRepositorySourceImport("from '../../../src/common/controller'"),
     ).toBe(true);
+  });
+
+  it('packs the promotion-isolated core root when provided', () => {
+    expect(
+      getHttpCoreConsumerCorePackageRoot(
+        { NEST_BASE_CORE_PACKAGE_ROOT: 'C:/promotion/package' },
+        'C:/repository/packages/core',
+      ),
+    ).toBe('C:/promotion/package');
+    expect(
+      getHttpCoreConsumerCorePackageRoot({}, 'C:/repository/packages/core'),
+    ).toBe('C:/repository/packages/core');
+  });
+
+  it('binds HTTP-core declarations to the promoted core artifact when provided', () => {
+    expect(
+      getPublishedCoreTypesPath(
+        { NEST_BASE_CORE_PACKAGE_ROOT: 'C:/promotion/package' },
+        'C:/repository',
+      ),
+    ).toBe(resolve('C:/promotion/package', 'dist/types/index.d.ts'));
+    expect(getPublishedCoreTypesPath({}, 'C:/repository')).toBe(
+      resolve(
+        'C:/repository',
+        'node_modules/@nest-base/core/dist/types/index.d.ts',
+      ),
+    );
   });
 
   it('enforces consumer source and installed-package provenance at runtime', () => {
@@ -225,7 +256,7 @@ function validHttpCoreAuditInput(): HttpCoreDependencyAuditInput {
   return {
     manifest: {
       peerDependencies: {
-        '@nest-base/core': '>=0.1.0 <0.2.0',
+        '@nest-base/core': '>=0.2.0 <0.3.0',
         '@nestjs/common': '>=11.0.0 <12.0.0',
         '@nestjs/swagger': '>=11.0.0 <12.0.0',
         typeorm: '>=0.3.28 <0.4.0',
@@ -249,7 +280,7 @@ function validHttpCorePack(): HttpCorePackedEntry[] {
       path: 'package/package.json',
       content: JSON.stringify({
         peerDependencies: {
-          '@nest-base/core': '>=0.1.0 <0.2.0',
+          '@nest-base/core': '>=0.2.0 <0.3.0',
           '@nestjs/common': '>=11.0.0 <12.0.0',
           '@nestjs/swagger': '>=11.0.0 <12.0.0',
           typeorm: '>=0.3.28 <0.4.0',

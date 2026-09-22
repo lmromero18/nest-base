@@ -6,6 +6,8 @@ export type {
   CrudControllerConstructor,
   CrudControllerInstance,
   CrudControllerOptions,
+  CrudRoutePolicy,
+  CrudAuthorization,
   CrudRoute,
 } from './controller/crud-controller.factory.js';
 export {
@@ -16,3 +18,5 @@ export type {
   SuccessResponseOptions,
   SuccessStatus,
 } from './responses/success.response.js';
+
+export { ApplicationExceptionFilter } from './errors/application-exception.filter.js';

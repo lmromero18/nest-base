@@ -10,8 +10,12 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const packageRoot = resolve(import.meta.dir);
-const repositoryRoot = resolve(packageRoot, '../..');
+const packageRoot = resolve(
+  process.env.NEST_BASE_HTTP_CORE_PACKAGE_ROOT ?? import.meta.dir,
+);
+const repositoryRoot = resolve(
+  process.env.NEST_BASE_REPOSITORY_ROOT ?? resolve(import.meta.dir, '../..'),
+);
 const root = join(
   tmpdir(),
   `nest-base-http-core-consumer-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -47,13 +51,16 @@ export function assertHttpCoreConsumerProvenance(consumerRoot: string): void {
     );
 }
 
-export function createHttpCoreConsumerManifest(tarball: string) {
+export function createHttpCoreConsumerManifest(
+  tarball: string,
+  coreTarball: string,
+) {
   return {
     name: 'nest-base-http-core-independent-consumer',
     private: true,
     type: 'module',
     dependencies: {
-      '@nest-base/core': '0.1.0',
+      '@nest-base/core': `file:${coreTarball}`,
       '@nest-base/http-core': `file:${tarball}`,
       '@nestjs/common': '>=11.0.0 <12.0.0',
       '@nestjs/swagger': '>=11.0.0 <12.0.0',
@@ -61,6 +68,23 @@ export function createHttpCoreConsumerManifest(tarball: string) {
       typeorm: '>=0.3.28 <0.4.0',
     },
   };
+}
+
+export function getHttpCoreConsumerCorePackageRoot(
+  environment: NodeJS.ProcessEnv = process.env,
+  repositoryPackageRoot = resolve(repositoryRoot, 'packages/core'),
+): string {
+  return environment.NEST_BASE_CORE_PACKAGE_ROOT ?? repositoryPackageRoot;
+}
+
+export function getPublishedCoreTypesPath(
+  environment: NodeJS.ProcessEnv = process.env,
+  resolvedRepositoryRoot = repositoryRoot,
+): string {
+  const corePackageRoot =
+    environment.NEST_BASE_CORE_PACKAGE_ROOT ??
+    resolve(resolvedRepositoryRoot, 'node_modules/@nest-base/core');
+  return resolve(corePackageRoot, 'dist/types/index.d.ts');
 }
 
 export function getHttpCoreConsumerCommands(compiler: string): string[][] {
@@ -96,10 +120,23 @@ function main(): void {
   if (!name)
     throw new Error('No packed @nest-base/http-core artifact was produced');
   const httpTarball = join(artifacts, name);
+  run(
+    ['npm', 'pack', '--ignore-scripts', '--pack-destination', artifacts],
+    getHttpCoreConsumerCorePackageRoot(),
+  );
+  const coreName = readdirSync(artifacts).find(
+    (entry) =>
+      entry.includes('-core-') &&
+      !entry.includes('http-core') &&
+      entry.endsWith('.tgz'),
+  );
+  if (!coreName)
+    throw new Error('No packed @nest-base/core artifact was produced');
+  const coreTarball = join(artifacts, coreName);
 
   writeFileSync(
     join(consumer, 'package.json'),
-    `${JSON.stringify(createHttpCoreConsumerManifest(httpTarball), null, 2)}\n`,
+    `${JSON.stringify(createHttpCoreConsumerManifest(httpTarball, coreTarball), null, 2)}\n`,
   );
   writeFileSync(
     join(consumer, 'tsconfig.json'),
@@ -123,17 +160,31 @@ function main(): void {
   writeFileSync(
     join(consumer, 'src/index.ts'),
     `import 'reflect-metadata';
-import { CrudControllerFactory } from '@nest-base/http-core';
-import { BaseService } from '@nest-base/core';
+import { CrudControllerFactory, ApplicationExceptionFilter } from '@nest-base/http-core';
+import { BaseService, type ScopeWhere, type ScopeContext, type ScopeOperation } from '@nest-base/core';
 
-class ConsumerService extends BaseService<{ id: number }> {}
+class ConsumerService extends BaseService<{ id: number }> {
+  protected override readonly requireScope = true;
+  protected override buildScope(context: ScopeContext): ScopeWhere<{ id: number }> {
+    const operation: ScopeOperation = context.operation;
+    if (!operation) throw new Error('Missing operation');
+    return { id: 1 };
+  }
+}
+const key = Symbol('consumer-policy');
+const Controller = CrudControllerFactory<{ id: number }>({
+  routes: ['find'], strictAuthorizationCoverage: true,
+  authorization: { find: [{ key, value: { action: 'read' } }] },
+});
+const metadata = Reflect.getMetadata(key, Controller.prototype.find);
+if (metadata.action !== 'read' || typeof ApplicationExceptionFilter !== 'function') throw new Error('New HTTP core exports failed');
 if (typeof CrudControllerFactory !== 'function' || !(ConsumerService.prototype instanceof BaseService)) throw new Error('HTTP core consumer API contract failed');
 console.log('independent http-core consumer ESM API passed');
 `,
   );
   writeFileSync(
     join(consumer, 'cjs-check.cjs'),
-    `const http = require('@nest-base/http-core'); const core = require('@nest-base/core'); if (typeof http.CrudControllerFactory !== 'function' || typeof core.BaseService !== 'function') process.exit(1); console.log('independent http-core consumer CJS API passed');\n`,
+    `const http = require('@nest-base/http-core'); const core = require('@nest-base/core'); if (typeof http.CrudControllerFactory !== 'function' || typeof core.BaseService !== 'function' || typeof http.ApplicationExceptionFilter !== 'function') process.exit(1); const key = Symbol('policy'); const Controller = http.CrudControllerFactory({routes: ['find'], strictAuthorizationCoverage: true, authorization: {find: [{key, value: 'opaque'}]}}); if (Reflect.getMetadata(key, Controller.prototype.find) !== 'opaque') process.exit(1); console.log('independent http-core consumer CJS API passed');\n`,
   );
 
   try {

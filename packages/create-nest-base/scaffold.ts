@@ -1,36 +1,22 @@
 import { join } from 'node:path';
+import { createPackageManagerAdapter } from './install.js';
+import type { PackageManager } from './types.js';
 
 export interface ScaffoldCommand {
-  executable: 'bunx';
-  args: [
-    string,
-    'new',
-    string,
-    '--package-manager',
-    'bun',
-    '--strict',
-    '--skip-install',
-    '--skip-git',
-  ];
+  executable: string;
+  args: string[];
 }
 
-export function buildScaffoldCommand(projectName: string): ScaffoldCommand {
+export function buildScaffoldCommand(
+  projectName: string,
+  packageManager: PackageManager = 'bun',
+): ScaffoldCommand {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(projectName)) {
     throw new Error('Project name is invalid.');
   }
-  return {
-    executable: 'bunx',
-    args: [
-      '@nestjs/cli@11.0.0',
-      'new',
-      projectName,
-      '--package-manager',
-      'bun',
-      '--strict',
-      '--skip-install',
-      '--skip-git',
-    ],
-  };
+  return createPackageManagerAdapter(packageManager, {
+    resolveExecutable: (executable) => executable,
+  }).scaffoldCommand(projectName);
 }
 
 export interface ScaffoldFileSystem {

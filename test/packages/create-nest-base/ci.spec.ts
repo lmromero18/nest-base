@@ -7,75 +7,103 @@ import {
 } from '../../../packages/create-nest-base/cli';
 import { normalizeInteractiveInput } from '../../../packages/create-nest-base/ux';
 
+const validIntegrity = `sha512-${Buffer.alloc(64).toString('base64')}`;
+
 describe('create-nest-base CI normalization', () => {
+  it('rejects a sha512 value with an incomplete digest before artifact resolution', () => {
+    expect(() =>
+      normalizeCiInput({
+        ci: true,
+        target: 'target',
+        packageManager: 'bun',
+        selections: ['core-crud'],
+        coreSource: { kind: 'registry', spec: '@nest-base/core@0.1.0' },
+        coreVersion: '0.1.0',
+        coreIntegrity: 'sha512-A',
+      }),
+    ).toThrow('integrity');
+  });
   it('requires explicit CI target and selected capability sources/versions', () => {
     expect(() => normalizeCiInput({ ci: true })).toThrow('target');
-    expect(() => normalizeCiInput({ ci: true, target: './demo' })).toThrow(
-      'core source',
-    );
     expect(() =>
       normalizeCiInput({
         ci: true,
         target: './demo',
-        coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-core',
+        packageManager: 'bun',
+        selections: ['core-crud'],
       }),
     ).toThrow('core source');
     expect(() =>
       normalizeCiInput({
         ci: true,
         target: './demo',
-        coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
-        coreIntegrity: 'sha512-core',
+        packageManager: 'bun',
+        selections: ['core-crud'],
+        coreVersion: '1.2.3',
+        coreIntegrity: validIntegrity,
       }),
-    ).toThrow('core version');
+    ).toThrow('core source');
     expect(() =>
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
+        coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
+        coreIntegrity: validIntegrity,
+      }),
+    ).toThrow('--select');
+    expect(() =>
+      normalizeCiInput({
+        ci: true,
+        target: './demo',
+        packageManager: 'bun',
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
       }),
-    ).toThrow('core integrity');
+    ).toThrow('--select');
     expect(() =>
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
         coreIntegrity: 'sha512-pending',
       }),
-    ).toThrow('integrity');
+    ).toThrow('--select');
     expect(() =>
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-core',
+        coreIntegrity: validIntegrity,
       }),
     ).toThrow('logger source');
     expect(() =>
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-core',
+        coreIntegrity: validIntegrity,
         loggerSource: { kind: 'registry', spec: '@nest-base/logger@2.0.0' },
-        loggerIntegrity: 'sha512-logger',
+        loggerIntegrity: validIntegrity,
       }),
     ).toThrow('logger version');
     expect(() =>
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         selections: ['logger'],
         coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
         coreVersion: '1.2.3',
-        coreIntegrity: 'sha512-core',
+        coreIntegrity: validIntegrity,
         loggerSource: { kind: 'registry', spec: '@nest-base/logger@2.0.0' },
         loggerVersion: '2.0.0',
       }),
@@ -84,24 +112,95 @@ describe('create-nest-base CI normalization', () => {
       normalizeCiInput({
         ci: true,
         target: './demo',
+        packageManager: 'bun',
         selections: ['websocket'],
       }),
     ).toThrow('unavailable');
   });
 
+  it('fails closed when CI capability selection is omitted', () => {
+    expect(() =>
+      normalizeCiInput({
+        ci: true,
+        target: './demo',
+        packageManager: 'bun',
+        coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
+        coreVersion: '1.2.3',
+        coreIntegrity: validIntegrity,
+      }),
+    ).toThrow('--select');
+  });
+
+  it('rejects malformed SHA-512 integrity during CI normalization', () => {
+    expect(() =>
+      normalizeCiInput({
+        ci: true,
+        target: './demo',
+        packageManager: 'bun',
+        selections: ['core-crud'],
+        coreSource: { kind: 'registry', spec: '@nest-base/core@1.2.3' },
+        coreVersion: '1.2.3',
+        coreIntegrity: 'sha512-not-base64!',
+      }),
+    ).toThrow('integrity');
+  });
+
+  it('requires explicit HTTP-core artifact inputs only when HTTP-core is selected', () => {
+    const base = {
+      ci: true as const,
+      target: './demo',
+      packageManager: 'bun' as const,
+      coreSource: { kind: 'registry' as const, spec: '@nest-base/core@1.2.3' },
+      coreVersion: '1.2.3',
+      coreIntegrity: validIntegrity as `sha512-${string}`,
+      selections: ['core-crud', 'http-core'],
+    };
+    expect(() => normalizeCiInput(base)).toThrow('http-core source');
+    expect(() =>
+      normalizeCiInput({
+        ...base,
+        httpCoreSource: {
+          kind: 'registry',
+          spec: '@nest-base/http-core@0.1.0',
+        },
+      }),
+    ).toThrow('http-core version');
+    expect(() =>
+      normalizeCiInput({
+        ...base,
+        httpCoreSource: {
+          kind: 'registry',
+          spec: '@nest-base/http-core@0.1.0',
+        },
+        httpCoreVersion: '0.1.0',
+      }),
+    ).toThrow('http-core integrity');
+    const plan = normalizeCiInput({
+      ...base,
+      httpCoreSource: { kind: 'registry', spec: '@nest-base/http-core@0.1.0' },
+      httpCoreVersion: '0.1.0',
+      httpCoreIntegrity: validIntegrity,
+    });
+    expect(plan.capabilities.map((entry) => entry.id)).toEqual([
+      'core-crud',
+      'http-core',
+    ]);
+  });
+
   it('produces byte-equivalent CI and interactive plans', () => {
     const input = {
       target: './demo',
+      packageManager: 'bun' as const,
       selections: ['logger'],
       coreVersion: '1.2.3',
       coreSource: { kind: 'registry' as const, spec: '@nest-base/core@1.2.3' },
-      coreIntegrity: 'sha512-core' as const,
+      coreIntegrity: validIntegrity as `sha512-${string}`,
       loggerVersion: '2.0.0',
       loggerSource: {
         kind: 'registry' as const,
         spec: '@nest-base/logger@2.0.0',
       },
-      loggerIntegrity: 'sha512-logger' as const,
+      loggerIntegrity: validIntegrity as `sha512-${string}`,
       wizardVersion: '0.1.0',
     };
     expect(serializePlan(normalizeCiInput({ ...input, ci: true }))).toBe(
@@ -113,6 +212,8 @@ describe('create-nest-base CI normalization', () => {
     expect(
       parseCliArgs([
         '--ci',
+        '--package-manager',
+        'bun',
         '--dry-run',
         '--target',
         './demo',
@@ -123,7 +224,7 @@ describe('create-nest-base CI normalization', () => {
         '--core-source',
         '@nest-base/core@1.2.3',
         '--core-integrity',
-        'sha512-core',
+        validIntegrity,
       ]),
     ).toMatchObject({ ci: true, dryRun: true, target: './demo' });
   });
@@ -131,15 +232,19 @@ describe('create-nest-base CI normalization', () => {
   it('accepts a complete explicit CI plan and rejects silently ignored confirmation flags', () => {
     const args = parseCliArgs([
       '--ci',
+      '--package-manager',
+      'bun',
       '--yes',
       '--target',
       './demo',
+      '--select',
+      'core-crud',
       '--core-version',
       '1.2.3',
       '--core-source',
       '@nest-base/core@1.2.3',
       '--core-integrity',
-      'sha512-core',
+      validIntegrity,
     ]);
 
     expect(runCli(args).exitCode).toBe(0);

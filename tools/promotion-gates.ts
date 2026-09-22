@@ -1,6 +1,7 @@
 import { execFile, execFileSync, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -9,6 +10,7 @@ import {
   rmdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -180,7 +182,8 @@ export function getPromotionResidue(
         if (
           entry.name !== ownershipMarker &&
           entry.name !== 'promotion-build-id' &&
-          entry.name !== 'package'
+          entry.name !== 'package' &&
+          entry.name !== 'http-core'
         )
           residue.add(resolve(runRoot, entry.name));
     } catch {
@@ -231,7 +234,12 @@ export function isStalePromotionRunRoot(
     !existsSync(marker)
   )
     return false;
-  if (isPromotionLockActive(lockPath, lockToken)) return false;
+  if (
+    isPromotionLockActive(lockPath, lockToken) ||
+    (existsSync(resolvedRunRoot + '.lock') &&
+      isPromotionLockActive(resolvedRunRoot + '.lock'))
+  )
+    return false;
   try {
     const markerAge = now - statSync(marker).mtimeMs;
     return markerAge >= staleRunRootAgeMs;
@@ -463,6 +471,7 @@ export async function runPromotionGates(
 ): Promise<void> {
   let stage = 'startup cleanup';
   const context = (options.createContext ?? createCoreRunContext)();
+  const httpPackageRoot = resolve(context.runRoot, 'http-core');
   let lockToken: string | undefined;
   let ownsRunRoot = false;
   const clean =
@@ -470,14 +479,9 @@ export async function runPromotionGates(
     ((packageRoot?: string) => cleanOutputs(packageRoot, context.runRoot));
   const cleanHttpCore =
     options.cleanHttpCoreOutputs ??
-    (() =>
-      cleanDeclaredPackageOutputs(
-        resolve(repositoryRoot, 'packages/http-core'),
-      ));
+    (() => cleanDeclaredPackageOutputs(httpPackageRoot));
   const cleanCoreRepository =
-    options.cleanCoreRepositoryOutputs ??
-    (() =>
-      cleanDeclaredPackageOutputs(resolve(repositoryRoot, 'packages/core')));
+    options.cleanCoreRepositoryOutputs ?? (() => true);
   const removeRunRoot = options.removeRunRoot ?? removeOwnedRunRoot;
   const execute =
     options.execute ??
@@ -499,6 +503,16 @@ export async function runPromotionGates(
     ownsRunRoot = true;
     cleanStalePromotionRunRoots(context.runRoot, context.lockPath, lockToken);
     createCorePackageWorkspace(repositoryRoot, context.packageRoot);
+    cpSync(resolve(repositoryRoot, 'packages/http-core'), httpPackageRoot, {
+      recursive: true,
+      filter: (path) =>
+        !/(^|[\\/])(dist|\.build-work|node_modules)([\\/]|$)/.test(path),
+    });
+    symlinkSync(
+      resolve(repositoryRoot, 'node_modules'),
+      resolve(httpPackageRoot, 'node_modules'),
+      'junction',
+    );
     if (!clean(context.packageRoot))
       throw new Error('Could not clean generated outputs');
     if (!cleanHttpCore())
@@ -509,13 +523,25 @@ export async function runPromotionGates(
       stage = checkpoint;
       console.log(`${checkpoint} starting: ${command.join(' ')}`);
       if (checkpoint === 'install') {
-        await execute(command, {
-          stdio: 'inherit',
-          timeout: childTimeoutMs,
-          killSignal: 'SIGTERM',
-          env: { ...process.env, NEST_BASE_REPOSITORY_ROOT: repositoryRoot },
+        const installLockPath = resolve(
+          tmpdir(),
+          'nest-base-frozen-install.lock',
+        );
+        const installToken = acquireCoreOutputLock({
+          lockPath: installLockPath,
         });
-        assertFrozenInstallContract(lockfileBefore);
+        try {
+          await execute(command, {
+            stdio: 'inherit',
+            timeout: childTimeoutMs,
+            killSignal: 'SIGTERM',
+            env: { ...process.env, NEST_BASE_REPOSITORY_ROOT: repositoryRoot },
+          });
+          assertFrozenInstallContract(lockfileBefore);
+        } finally {
+          releaseCoreOutputLock(installToken, installLockPath);
+          process.env.NEST_BASE_CORE_LOCK_TOKEN = lockToken;
+        }
       } else if (checkpoint === 'C2-artifacts') {
         assertCompleteArtifactInventory(
           context.packageRoot,
@@ -529,6 +555,7 @@ export async function runPromotionGates(
           killSignal: 'SIGTERM',
           env: {
             ...process.env,
+            NEST_BASE_HTTP_CORE_PACKAGE_ROOT: httpPackageRoot,
             NEST_BASE_PROMOTION_BUILD_ID: context.buildId,
             NEST_BASE_CORE_RUN_ROOT: context.runRoot,
             NEST_BASE_CORE_PACKAGE_ROOT: context.packageRoot,
@@ -589,7 +616,7 @@ export async function runPromotionGates(
       if (!cleanHttpCore())
         cleanupFailures.push({
           operation: 'clean HTTP-core outputs',
-          path: resolve(repositoryRoot, 'packages/http-core'),
+          path: httpPackageRoot,
           error: new Error('cleanup returned false'),
         });
       if (!cleanCoreRepository())
@@ -598,19 +625,9 @@ export async function runPromotionGates(
           path: resolve(repositoryRoot, 'packages/core'),
           error: new Error('cleanup returned false'),
         });
-      for (const path of getDeclaredPackageResidue(
-        resolve(repositoryRoot, 'packages/http-core'),
-      ))
+      for (const path of getDeclaredPackageResidue(httpPackageRoot))
         cleanupFailures.push({
           operation: 'HTTP-core residual artifact',
-          path,
-          error: new Error('cleanup could not prove absence'),
-        });
-      for (const path of getDeclaredPackageResidue(
-        resolve(repositoryRoot, 'packages/core'),
-      ))
-        cleanupFailures.push({
-          operation: 'core repository residual artifact',
           path,
           error: new Error('cleanup could not prove absence'),
         });
@@ -777,7 +794,7 @@ export function captureProcessIdentity(pid: number): ProcessIdentity | null {
           '-NoProfile',
           '-NonInteractive',
           '-Command',
-          `$p=Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}"; if ($p) { $o=$p.GetOwner(); [pscustomobject]@{CommandLine=$p.CommandLine; CreationDate=$p.CreationDate.ToUniversalTime().ToString('o'); Owner="$($o.Domain)\\$($o.User)"} | ConvertTo-Json -Compress }`,
+          `$p=Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}"; if ($p) { $o=Invoke-CimMethod -InputObject $p -MethodName GetOwner; [pscustomobject]@{CommandLine=$p.CommandLine; CreationDate=$p.CreationDate.ToUniversalTime().ToString('o'); Owner="$($o.Domain)\\$($o.User)"} | ConvertTo-Json -Compress }`,
         ],
         { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
       ).trim();

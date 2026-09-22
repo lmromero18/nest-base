@@ -9,6 +9,8 @@ export interface RequestContextStore {
     aud?: string;
   };
   requestId?: string;
+  /** Optional end-to-end correlation; identity remains independent of authorization. */
+  correlationId?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContextStore>();
