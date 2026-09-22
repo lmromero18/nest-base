@@ -37,8 +37,15 @@ jobs:
       - name: Check for focused tests
         run: bun run test:focused:check
 
+      - name: Start dedicated PostgreSQL integration database
+        run: bun run test:postgres:setup
+
       - name: Test
         run: bun test
 
       - name: Build
         run: bun run build
+
+      - name: Stop integration database
+        if: always()
+        run: bun run test:postgres:stop

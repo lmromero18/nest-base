@@ -411,3 +411,25 @@ bun install --frozen-lockfile pasó y bun.lock permanece intacto.
 - Los 120 s de promoción siguen siendo sensibles a carga/red; se conservan
   como gate, sin prometer rendimiento idéntico en otras máquinas.
 - .atl/ preexistente permanece intacto y fuera de los commits.
+
+## Preparación de release coordinado — 2026-09-22
+
+Autorizado el merge y la publicación de core/http-core 0.2.0. Ambos manifests
+se actualizaron a 0.2.0 y http-core exige core >=0.2.0 <0.3.0; las auditorías
+y sus tests verifican ese rango. El paquete create-nest-base no se versiona
+ni publica en este release.
+
+La dependencia privada raíz permanece en core 0.1.0 como baseline explícito
+de compatibilidad; no se necesita modificar bun.lock para publicar estos dos
+paquetes. Los consumidores de release instalan ambos tarballs 0.2.0.
+Esto sustituye la propuesta anterior de actualizar también la resolución raíz.
+
+CI levanta y detiene la misma base PostgreSQL dedicada antes/después de la
+suite. La incorporación del paso no constituye una ejecución de CI/Linux:
+esa evidencia dependerá de una ejecución remota posterior.
+
+Calidad y 29 pruebas focalizadas de arquitectura/contrato PASS para los
+metadatos de release. La suite funcional completa conserva la evidencia
+516/516 del cierre anterior; no se presenta como reejecutada para esta edición.
+La publicación efectiva y su integridad se registrarán una vez confirmadas
+por npm. El merge/publicación no incluye .env.test, .atl ni artefactos locales.

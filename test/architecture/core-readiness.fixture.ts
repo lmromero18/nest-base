@@ -71,6 +71,10 @@ export const CORE_CANONICAL_SOURCE_MAP = {
 
 export const CORE_READINESS_SCOPE = {
   acceptedChangedFiles: [
+    'packages/core/package.json',
+    'packages/http-core/package.json',
+    'test/packages/http-core/package-platform-contract.spec.ts',
+    '.github/workflows/ci.yml',
     'compose.postgres-test.yml',
     'tools/postgres-test.ts',
     'test/integration/scope-postgres.spec.ts',

@@ -12,7 +12,7 @@ const manifest = JSON.parse(
   peerDependencies?: Record<string, string>;
 };
 const expectedPeers = {
-  '@nest-base/core': '>=0.1.0 <0.2.0',
+  '@nest-base/core': '>=0.2.0 <0.3.0',
   '@nestjs/common': '>=11.0.0 <12.0.0',
   '@nestjs/swagger': '>=11.0.0 <12.0.0',
   typeorm: '>=0.3.28 <0.4.0',

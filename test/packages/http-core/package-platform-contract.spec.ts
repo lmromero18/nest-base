@@ -26,7 +26,7 @@ describe('@nest-base/http-core package-platform evidence', () => {
       manifest: {
         dependencies: { '@nestjs/common': '^11.0.0' },
         peerDependencies: {
-          '@nest-base/core': '>=0.1.0 <0.2.0',
+          '@nest-base/core': '>=0.2.0 <0.3.0',
           '@nestjs/common': '>=11.0.0 <12.0.0',
           '@nestjs/swagger': '>=11.0.0 <12.0.0',
           typeorm: '>=0.3.28 <0.4.0',
@@ -256,7 +256,7 @@ function validHttpCoreAuditInput(): HttpCoreDependencyAuditInput {
   return {
     manifest: {
       peerDependencies: {
-        '@nest-base/core': '>=0.1.0 <0.2.0',
+        '@nest-base/core': '>=0.2.0 <0.3.0',
         '@nestjs/common': '>=11.0.0 <12.0.0',
         '@nestjs/swagger': '>=11.0.0 <12.0.0',
         typeorm: '>=0.3.28 <0.4.0',
@@ -280,7 +280,7 @@ function validHttpCorePack(): HttpCorePackedEntry[] {
       path: 'package/package.json',
       content: JSON.stringify({
         peerDependencies: {
-          '@nest-base/core': '>=0.1.0 <0.2.0',
+          '@nest-base/core': '>=0.2.0 <0.3.0',
           '@nestjs/common': '>=11.0.0 <12.0.0',
           '@nestjs/swagger': '>=11.0.0 <12.0.0',
           typeorm: '>=0.3.28 <0.4.0',
